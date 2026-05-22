@@ -4,6 +4,7 @@ import ApplicationServices
 struct SwitcherRow {
     let app: NSRunningApplication
     let window: AXUIElement?
+    let tabRef: AXUIElement?
     let windowTitle: String
     let isMinimized: Bool
     let isPlaceholder: Bool
@@ -13,10 +14,12 @@ struct SwitcherRow {
         window: AXUIElement?,
         windowTitle: String,
         isMinimized: Bool,
+        tabRef: AXUIElement? = nil,
         isPlaceholder: Bool = false
     ) {
         self.app = app
         self.window = window
+        self.tabRef = tabRef
         self.windowTitle = windowTitle
         self.isMinimized = isMinimized
         self.isPlaceholder = isPlaceholder

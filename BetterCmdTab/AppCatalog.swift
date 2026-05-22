@@ -84,7 +84,8 @@ enum AppCatalog {
                         app: entry.app,
                         window: win.ref,
                         windowTitle: win.title,
-                        isMinimized: win.isMinimized
+                        isMinimized: win.isMinimized,
+                        tabRef: win.tabRef
                     ))
                 }
             }

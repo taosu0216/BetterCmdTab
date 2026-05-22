@@ -59,7 +59,8 @@ final class AppCatalogCache {
                         app: entry.app,
                         window: window.ref,
                         windowTitle: window.title,
-                        isMinimized: window.isMinimized
+                        isMinimized: window.isMinimized,
+                        tabRef: window.tabRef
                     ))
                 }
             }
