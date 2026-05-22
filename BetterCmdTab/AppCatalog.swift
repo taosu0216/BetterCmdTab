@@ -36,7 +36,10 @@ enum AppCatalog {
         windowsBuffer.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: count) { i in
                 let app = candidates[i]
-                buffer[i] = WindowEnumerator.windows(forPid: app.processIdentifier)
+                buffer[i] = WindowEnumerator.windows(
+                    forPid: app.processIdentifier,
+                    isRegularApp: app.activationPolicy == .regular
+                )
             }
         }
 
@@ -85,6 +88,7 @@ enum AppCatalog {
                         window: win.ref,
                         windowTitle: win.title,
                         isMinimized: win.isMinimized,
+                        isFullscreen: win.isFullscreen,
                         tabRef: win.tabRef
                     ))
                 }

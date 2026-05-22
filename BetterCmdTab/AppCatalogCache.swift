@@ -60,6 +60,7 @@ final class AppCatalogCache {
                         window: window.ref,
                         windowTitle: window.title,
                         isMinimized: window.isMinimized,
+                        isFullscreen: window.isFullscreen,
                         tabRef: window.tabRef
                     ))
                 }
@@ -114,7 +115,10 @@ final class AppCatalogCache {
         windowsBuffer.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: count) { i in
                 let app = candidates[i]
-                buffer[i] = WindowEnumerator.windows(forPid: app.processIdentifier)
+                buffer[i] = WindowEnumerator.windows(
+                    forPid: app.processIdentifier,
+                    isRegularApp: app.activationPolicy == .regular
+                )
             }
         }
 
@@ -179,8 +183,9 @@ final class AppCatalogCache {
             entries.removeValue(forKey: pid)
             return
         }
+        let isRegular = policy == .regular
         snapshotQueue.async { [weak self] in
-            let windows = WindowEnumerator.windows(forPid: pid)
+            let windows = WindowEnumerator.windows(forPid: pid, isRegularApp: isRegular)
             DispatchQueue.main.async {
                 guard let self else { return }
                 if policy == .regular {

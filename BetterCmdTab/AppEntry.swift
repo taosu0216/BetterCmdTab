@@ -7,6 +7,7 @@ struct SwitcherRow {
     let tabRef: AXUIElement?
     let windowTitle: String
     let isMinimized: Bool
+    let isFullscreen: Bool
     let isPlaceholder: Bool
 
     init(
@@ -14,6 +15,7 @@ struct SwitcherRow {
         window: AXUIElement?,
         windowTitle: String,
         isMinimized: Bool,
+        isFullscreen: Bool = false,
         tabRef: AXUIElement? = nil,
         isPlaceholder: Bool = false
     ) {
@@ -22,6 +24,7 @@ struct SwitcherRow {
         self.tabRef = tabRef
         self.windowTitle = windowTitle
         self.isMinimized = isMinimized
+        self.isFullscreen = isFullscreen
         self.isPlaceholder = isPlaceholder
     }
 

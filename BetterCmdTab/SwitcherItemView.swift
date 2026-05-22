@@ -10,6 +10,7 @@ final class SwitcherItemView: NSView {
     private let hiddenIcon = NSImageView()
     private let minimizedIcon = NSImageView()
     private let noWindowIcon = NSImageView()
+    private let fullscreenIcon = NSImageView()
 
     private var metrics: SwitcherMetrics = .baseline
     private static let statusIconGap: CGFloat = 4
@@ -69,7 +70,7 @@ final class SwitcherItemView: NSView {
         titleLabel.isSelectable = false
         addSubview(titleLabel)
 
-        for iv in [hiddenIcon, minimizedIcon, noWindowIcon] {
+        for iv in [hiddenIcon, minimizedIcon, noWindowIcon, fullscreenIcon] {
             iv.imageScaling = .scaleProportionallyUpOrDown
             iv.imageAlignment = .alignCenter
             iv.imageFrameStyle = .none
@@ -80,6 +81,7 @@ final class SwitcherItemView: NSView {
         hiddenIcon.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Hidden app")
         minimizedIcon.image = NSImage(systemSymbolName: "minus.rectangle", accessibilityDescription: "Minimized window")
         noWindowIcon.image = NSImage(systemSymbolName: "square.dashed", accessibilityDescription: "No active window")
+        fullscreenIcon.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Fullscreen window")
 
         applyMetrics(metrics)
     }
@@ -102,12 +104,15 @@ final class SwitcherItemView: NSView {
         let showHidden = !row.isPlaceholder && row.app.isHidden
         let showMinimized = !row.isPlaceholder && row.isMinimized && !showHidden
         let showNoWindow = !row.isPlaceholder && row.window == nil && !showHidden
+        let showFullscreen = !row.isPlaceholder && row.isFullscreen && !showHidden && !showMinimized && !showNoWindow
         if hiddenIcon.isHidden != !showHidden
             || minimizedIcon.isHidden != !showMinimized
-            || noWindowIcon.isHidden != !showNoWindow {
+            || noWindowIcon.isHidden != !showNoWindow
+            || fullscreenIcon.isHidden != !showFullscreen {
             hiddenIcon.isHidden = !showHidden
             minimizedIcon.isHidden = !showMinimized
             noWindowIcon.isHidden = !showNoWindow
+            fullscreenIcon.isHidden = !showFullscreen
             needsLayout = true
         }
         isSelected = selected
@@ -122,7 +127,7 @@ final class SwitcherItemView: NSView {
         letterLabel.font = NSFont.monospacedSystemFont(ofSize: metrics.letterFontSize, weight: .semibold)
         highlight.layer?.cornerRadius = metrics.highlightCornerRadius
         let symbolCfg = NSImage.SymbolConfiguration(pointSize: metrics.fontSize, weight: .regular)
-        for iv in [hiddenIcon, minimizedIcon, noWindowIcon] {
+        for iv in [hiddenIcon, minimizedIcon, noWindowIcon, fullscreenIcon] {
             iv.symbolConfiguration = symbolCfg
         }
         needsLayout = true
@@ -135,7 +140,7 @@ final class SwitcherItemView: NSView {
         let statusTint: NSColor = isSelected ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
         appNameLabel.textColor = primary
         titleLabel.textColor = secondary
-        for iv in [hiddenIcon, minimizedIcon, noWindowIcon] {
+        for iv in [hiddenIcon, minimizedIcon, noWindowIcon, fullscreenIcon] {
             iv.contentTintColor = statusTint
         }
         renderLetter()
@@ -189,7 +194,7 @@ final class SwitcherItemView: NSView {
         let iconX = appX + m.appNameWidth + m.interGap
         imageView.frame = NSRect(x: iconX, y: iconY, width: m.iconSize, height: m.iconSize)
 
-        let visibleStatusIcons = [hiddenIcon, minimizedIcon, noWindowIcon].filter { !$0.isHidden }
+        let visibleStatusIcons = [hiddenIcon, minimizedIcon, noWindowIcon, fullscreenIcon].filter { !$0.isHidden }
         var statusRightEdge = bounds.width - m.horizontalInset
         for iv in visibleStatusIcons.reversed() {
             let frame = NSRect(

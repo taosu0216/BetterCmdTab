@@ -36,7 +36,11 @@ enum Activator {
         }
 
         guard let window = row.window else {
-            openFreshWindow(for: app)
+            if row.isFullscreen {
+                bringToFront(app)
+            } else {
+                openFreshWindow(for: app)
+            }
             return
         }
 
@@ -50,6 +54,13 @@ enum Activator {
             focusTab(tabRef)
         }
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        // Cross-Space raise: kAXRaiseAction + NSRunningApplication.activate()
+        // cannot move the user to a fullscreen Space that hosts only the target
+        // window. SkyLight's private SLPS path handles that.
+        let wid = PrivateAPI.cgWindowId(of: window)
+        if wid != 0 {
+            PrivateAPI.raiseWindow(pid: row.pid, wid: wid)
+        }
         bringToFront(app)
     }
 
