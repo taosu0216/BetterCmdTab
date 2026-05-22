@@ -200,11 +200,22 @@ final class AppCatalogCache {
         observers.append(launchObs)
     }
 
+    /// Stagger per-app AX observer install across run loop ticks so the main
+    /// thread stays responsive during launch. `AXObserverAddNotification` has
+    /// no timeout API and can stall ~50–100ms when the target app is slow —
+    /// batching all apps inline blocked startup by 10+ seconds.
     private func installAXObserversForAllApps() {
         let selfPid = getpid()
-        for app in NSWorkspace.shared.runningApplications where app.processIdentifier != selfPid {
-            installAXObserver(forPid: app.processIdentifier)
+        let pids = NSWorkspace.shared.runningApplications
+            .map(\.processIdentifier)
+            .filter { $0 != selfPid }
+        var iterator = pids.makeIterator()
+        func step() {
+            guard let pid = iterator.next() else { return }
+            installAXObserver(forPid: pid)
+            DispatchQueue.main.async(execute: step)
         }
+        DispatchQueue.main.async(execute: step)
     }
 
     private func installAXObserver(forPid pid: pid_t) {
@@ -228,6 +239,9 @@ final class AppCatalogCache {
         }
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         let axApp = AXUIElementCreateApplication(pid)
+        // Clamp per-call blocking when the target app is slow. Without this
+        // `AXObserverAddNotification` can stall the main thread indefinitely.
+        AXUIElementSetMessagingTimeout(axApp, 0.2)
         for name in Self.axNotifications {
             _ = AXObserverAddNotification(observer, axApp, name as CFString, refcon)
         }
