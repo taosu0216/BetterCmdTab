@@ -75,6 +75,8 @@ final class SwitcherView: NSView {
     private var highlightPrefix: String = ""
 
     func configure(rows: [SwitcherRow], labels: [String], selectedIndex: Int, metrics: SwitcherMetrics, highlightPrefix: String = "") {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         self.rows = rows
         self.labels = labels
         self.highlightPrefix = highlightPrefix
@@ -90,6 +92,7 @@ final class SwitcherView: NSView {
         invalidateIntrinsicContentSize()
         needsLayout = true
         applySelection()
+        CATransaction.commit()
     }
 
     func setSelectedIndex(_ index: Int) {

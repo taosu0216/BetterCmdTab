@@ -35,6 +35,8 @@ final class SwitcherPanel: NSPanel {
 
     func present() {
         guard let content = contentView else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let screen = activeScreen()
@@ -43,8 +45,12 @@ final class SwitcherPanel: NSPanel {
             x: visible.midX - size.width / 2,
             y: visible.midY - size.height / 2
         )
-        setFrame(NSRect(origin: origin, size: size), display: false)
+        let newFrame = NSRect(origin: origin, size: size)
+        if frame != newFrame {
+            setFrame(newFrame, display: true)
+        }
         makeKeyAndOrderFront(nil)
+        CATransaction.commit()
     }
 
     func dismiss() {
