@@ -1,6 +1,19 @@
 import AppKit
+import ObjectiveC.runtime
+import os
 
 final class LiquidGlassAppKitView: NSView {
+    /// Probe ObjC property + setter existence before KVC. Defends against
+    /// Apple renaming a private property on NSGlassEffectView between macOS 26
+    /// betas — `responds(to:)` catches setter rename, `class_getProperty`
+    /// catches @property removal that would otherwise trigger
+    /// `setValue:forUndefinedKey:` → NSUndefinedKeyException → SIGABRT.
+    private static func canSetProperty(_ object: AnyObject, key: String) -> Bool {
+        let setterName = "set" + key.prefix(1).uppercased() + key.dropFirst() + ":"
+        guard object.responds(to: Selector(setterName)) else { return false }
+        let cls: AnyClass = type(of: object)
+        return key.withCString { class_getProperty(cls, $0) != nil }
+    }
     var cornerRadius: CGFloat { didSet { applyConfiguration() } }
     var variant: LiquidGlassVariant { didSet { applyConfiguration() } }
     var tintColor: NSColor? { didSet { applyConfiguration() } }
@@ -55,12 +68,12 @@ final class LiquidGlassAppKitView: NSView {
         if #available(macOS 26.0, *), let glass = makeGlassEffectView() {
             backing = glass
             configureGlassView(glass)
-            NSLog("[BetterCmdTab] LiquidGlass: NSGlassEffectView active")
+            Log.ui.debug("LiquidGlass: NSGlassEffectView active")
         } else {
             let effectView = NSVisualEffectView()
             configureFallbackView(effectView)
             backing = effectView
-            NSLog("[BetterCmdTab] LiquidGlass: NSVisualEffectView fallback")
+            Log.ui.debug("LiquidGlass: NSVisualEffectView fallback")
         }
 
         backing.translatesAutoresizingMaskIntoConstraints = false
@@ -75,11 +88,17 @@ final class LiquidGlassAppKitView: NSView {
     }
 
     private func configureGlassView(_ glassView: NSView) {
-        if glassView.responds(to: Selector(("setCornerRadius:"))) {
+        if Self.canSetProperty(glassView, key: "cornerRadius") {
             glassView.setValue(cornerRadius, forKey: "cornerRadius")
+        } else {
+            Log.ui.warning("NSGlassEffectView cornerRadius setter missing, skipping")
         }
-        if let tintColor, glassView.responds(to: Selector(("setTintColor:"))) {
-            glassView.setValue(tintColor, forKey: "tintColor")
+        if let tintColor {
+            if Self.canSetProperty(glassView, key: "tintColor") {
+                glassView.setValue(tintColor, forKey: "tintColor")
+            } else {
+                Log.ui.warning("NSGlassEffectView tintColor setter missing, skipping")
+            }
         }
     }
 
@@ -178,7 +197,7 @@ final class LiquidGlassAppKitView: NSView {
         view.translatesAutoresizingMaskIntoConstraints = false
 
         if NSStringFromClass(type(of: backing)).contains("NSGlassEffectView"),
-           backing.responds(to: Selector(("setContentView:"))) {
+           Self.canSetProperty(backing, key: "contentView") {
             backing.setValue(view, forKey: "contentView")
         } else {
             backing.addSubview(view)

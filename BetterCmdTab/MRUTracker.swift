@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 final class MRUTracker {
     private(set) var order: [pid_t] = []
@@ -41,7 +42,7 @@ final class MRUTracker {
         guard let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               front != selfPid else { return }
         if order.first != front {
-            NSLog("[BetterCmdTab] MRU.syncFrontmost: drift detected, front=\(front), was top=\(order.first ?? -1)")
+            Log.mru.debug("syncFrontmost drift front=\(front, privacy: .public) was=\(self.order.first ?? -1, privacy: .public)")
             bump(front)
         }
     }
@@ -49,7 +50,6 @@ final class MRUTracker {
     func bump(_ pid: pid_t) {
         order.removeAll { $0 == pid }
         order.insert(pid, at: 0)
-        NSLog("[BetterCmdTab] MRU.bump pid=\(pid) → order head=\(order.prefix(4).map(String.init).joined(separator: ","))")
     }
 
     private func remove(_ pid: pid_t) {

@@ -146,27 +146,60 @@ final class SwitcherItemView: NSView {
         renderLetter()
     }
 
-    private func renderLetter() {
-        let labelStr = currentLabel.uppercased()
-        let font = NSFont.monospacedSystemFont(ofSize: metrics.letterFontSize, weight: .semibold)
-        let boldFont = NSFont.monospacedSystemFont(ofSize: metrics.letterFontSize, weight: .bold)
-        let highlightColor: NSColor = isSelected ? .white : .controlAccentColor
-        let baseColor: NSColor = isSelected ? .white : .labelColor
+    private struct LetterCacheKey: Hashable {
+        let label: String
+        let prefixLen: Int
+        let fontSize: CGFloat
+        let selected: Bool
+    }
 
+    private static var letterCache: [LetterCacheKey: NSAttributedString] = [:]
+    private static var letterCacheOrder: [LetterCacheKey] = []
+    private static let letterCacheCap = 256
+
+    private static func memoizedLetter(_ key: LetterCacheKey) -> NSAttributedString {
+        if let hit = letterCache[key] {
+            if let idx = letterCacheOrder.firstIndex(of: key) {
+                letterCacheOrder.remove(at: idx)
+                letterCacheOrder.append(key)
+            }
+            return hit
+        }
+        let font = NSFont.monospacedSystemFont(ofSize: key.fontSize, weight: .semibold)
+        let boldFont = NSFont.monospacedSystemFont(ofSize: key.fontSize, weight: .bold)
+        let highlightColor: NSColor = key.selected ? .white : .controlAccentColor
+        let baseColor: NSColor = key.selected ? .white : .labelColor
         let para = NSMutableParagraphStyle()
         para.alignment = .center
 
-        let attr = NSMutableAttributedString(string: labelStr, attributes: [
+        let attr = NSMutableAttributedString(string: key.label, attributes: [
             .font: font,
             .foregroundColor: baseColor,
             .paragraphStyle: para,
         ])
-        let highlightLen = min(currentPrefixLength, labelStr.count)
+        let highlightLen = min(key.prefixLen, key.label.count)
         if highlightLen > 0 {
             attr.addAttribute(.foregroundColor, value: highlightColor, range: NSRange(location: 0, length: highlightLen))
             attr.addAttribute(.font, value: boldFont, range: NSRange(location: 0, length: highlightLen))
         }
-        letterLabel.attributedStringValue = attr
+        letterCache[key] = attr
+        letterCacheOrder.append(key)
+        if letterCacheOrder.count > letterCacheCap {
+            let victim = letterCacheOrder.removeFirst()
+            letterCache.removeValue(forKey: victim)
+        }
+        return attr
+    }
+
+    private func renderLetter() {
+        let labelStr = currentLabel.uppercased()
+        let key = LetterCacheKey(
+            label: labelStr,
+            prefixLen: currentPrefixLength,
+            fontSize: metrics.letterFontSize,
+            selected: isSelected
+        )
+        letterLabel.attributedStringValue = Self.memoizedLetter(key)
     }
 
     override func layout() {

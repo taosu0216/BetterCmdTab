@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 enum IconCache {
     private static let capacity = 64
     private static var cache: [pid_t: NSImage] = [:]
@@ -29,6 +30,20 @@ enum IconCache {
     static func clear() {
         cache.removeAll()
         order.removeAll()
+    }
+
+    /// Eagerly populate icons for the given pids so the first reveal pays no
+    /// `NSRunningApplication.icon` decode latency on the main thread. Safe to
+    /// call repeatedly; existing entries are touched, missing entries fetched.
+    static func prewarm(pids: [pid_t]) {
+        let apps = NSWorkspace.shared.runningApplications
+        let byPid = Dictionary(uniqueKeysWithValues: apps.map { ($0.processIdentifier, $0) })
+        for pid in pids {
+            guard cache[pid] == nil, let app = byPid[pid], let image = app.icon else { continue }
+            cache[pid] = image
+            order.append(pid)
+        }
+        evictIfNeeded()
     }
 
     private static func touch(_ pid: pid_t) {

@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @MainActor
 protocol SwitcherViewDelegate: AnyObject {
@@ -31,7 +32,7 @@ final class SwitcherView: NSView {
             glass.wantsLayer = true
             glass.layer?.masksToBounds = true
             glassBackdrop = glass
-            NSLog("[BetterCmdTab] Glass: NSGlassEffectView style=regular")
+            Log.ui.debug("Glass: NSGlassEffectView style=regular")
         } else {
             let fallback = NSVisualEffectView()
             fallback.material = .hudWindow
@@ -42,7 +43,7 @@ final class SwitcherView: NSView {
             fallback.layer?.cornerCurve = .continuous
             fallback.layer?.masksToBounds = true
             glassBackdrop = fallback
-            NSLog("[BetterCmdTab] Glass: NSVisualEffectView fallback")
+            Log.ui.debug("Glass: NSVisualEffectView fallback")
         }
         super.init(frame: frameRect)
 

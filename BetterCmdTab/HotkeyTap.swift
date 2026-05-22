@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import os
 
 final class HotkeyTap {
     enum Event {
@@ -20,10 +21,13 @@ final class HotkeyTap {
     }
 
     var onEvent: (Event) -> Void = { _ in }
-    var isSwitching: @MainActor () -> Bool = { false }
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var layoutObserver: NSObjectProtocol?
+
+    private let switchingFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private let layoutData = OSAllocatedUnfairLock<Data?>(initialState: nil)
 
     private static let tabKey: Int64 = 48
     private static let escKey: Int64 = 53
@@ -40,12 +44,11 @@ final class HotkeyTap {
     private static let hKey: Int64 = 4
     private static let qKey: Int64 = 12
 
-    private static let letterKeyCodes: [Int64: Character] = [
-        0: "a", 11: "b", 8: "c", 2: "d", 14: "e", 3: "f", 5: "g",
-        34: "i", 38: "j", 40: "k", 37: "l",
-        45: "n", 31: "o", 35: "p", 15: "r", 1: "s",
-        17: "t", 32: "u", 9: "v", 7: "x", 16: "y", 6: "z",
-    ]
+    /// Letters reserved for hotkey actions (close/minimize/hide/quit). UCKey-
+    /// Translate may emit one of these on a non-QWERTY layout for a different
+    /// physical key — filter so a Dvorak user pressing the "w" physical key
+    /// doesn't trigger Close instead of letter-jumping to "w"-labeled row.
+    private static let reservedLetters: Set<Character> = ["w", "m", "h", "q"]
 
     func install() -> Bool {
         let mask: CGEventMask =
@@ -76,6 +79,13 @@ final class HotkeyTap {
         CGEvent.tapEnable(tap: port, enable: true)
         tap = port
         runLoopSource = src
+
+        loadKeyboardLayout()
+        let nc = DistributedNotificationCenter.default()
+        let name = Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String)
+        layoutObserver = nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            self?.loadKeyboardLayout()
+        }
         return true
     }
 
@@ -88,11 +98,72 @@ final class HotkeyTap {
         }
         tap = nil
         runLoopSource = nil
+        if let obs = layoutObserver {
+            DistributedNotificationCenter.default().removeObserver(obs)
+            layoutObserver = nil
+        }
+    }
+
+    deinit {
+        uninstall()
+    }
+
+    /// Set by SwitcherController when phase transitions. Read by the tap
+    /// callback from arbitrary thread context — `OSAllocatedUnfairLock` makes
+    /// the access safe without needing `MainActor.assumeIsolated`.
+    func setSwitching(_ value: Bool) {
+        switchingFlag.withLock { $0 = value }
+    }
+
+    private func isSwitchingNow() -> Bool {
+        switchingFlag.withLock { $0 }
+    }
+
+    private func loadKeyboardLayout() {
+        guard let sourceRef = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
+            Log.hotkey.warning("TISCopyCurrentKeyboardInputSource returned nil")
+            return
+        }
+        guard let prop = TISGetInputSourceProperty(sourceRef, kTISPropertyUnicodeKeyLayoutData) else {
+            Log.hotkey.warning("TISGetInputSourceProperty kTISPropertyUnicodeKeyLayoutData nil")
+            return
+        }
+        let cfData = Unmanaged<CFData>.fromOpaque(prop).takeUnretainedValue()
+        let data = cfData as Data
+        layoutData.withLock { $0 = data }
+    }
+
+    private func translate(keyCode: UInt16) -> Character? {
+        let snapshot = layoutData.withLock { $0 }
+        guard let data = snapshot else { return nil }
+        return data.withUnsafeBytes { raw -> Character? in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+            var deadKeyState: UInt32 = 0
+            let maxLen = 4
+            var chars = [UniChar](repeating: 0, count: maxLen)
+            var actualLen = 0
+            let status = UCKeyTranslate(
+                base,
+                keyCode,
+                UInt16(kUCKeyActionDown),
+                0,
+                UInt32(LMGetKbdType()),
+                UInt32(kUCKeyTranslateNoDeadKeysMask),
+                &deadKeyState,
+                maxLen,
+                &actualLen,
+                &chars
+            )
+            guard status == noErr, actualLen > 0 else { return nil }
+            guard let scalar = Unicode.Scalar(chars[0]) else { return nil }
+            return Character(scalar)
+        }
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            Log.hotkey.warning("CGEventTap disabled, re-enabling")
             return Unmanaged.passUnretained(event)
         }
 
@@ -117,8 +188,7 @@ final class HotkeyTap {
                 return nil
             }
 
-            let switching = MainActor.assumeIsolated { self.isSwitching() }
-            if switching {
+            if isSwitchingNow() {
                 switch keyCode {
                 case Self.leftArrow:
                     deliver(.prevApp); return nil
@@ -141,9 +211,15 @@ final class HotkeyTap {
                 case Self.qKey:
                     deliver(.quitApp); return nil
                 default:
-                    if let letter = Self.letterKeyCodes[keyCode] {
-                        deliver(.letterInput(letter))
-                        return nil
+                    if let letter = translate(keyCode: UInt16(keyCode)) {
+                        let lower = Character(letter.lowercased())
+                        if lower.isLetter,
+                           let ascii = lower.asciiValue,
+                           ascii >= 0x61 && ascii <= 0x7A,
+                           !Self.reservedLetters.contains(lower) {
+                            deliver(.letterInput(lower))
+                            return nil
+                        }
                     }
                     break
                 }

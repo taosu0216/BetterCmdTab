@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @MainActor
 final class SwitcherController: SwitcherViewDelegate {
@@ -14,7 +15,7 @@ final class SwitcherController: SwitcherViewDelegate {
     private let panel = SwitcherPanel()
     private let view: SwitcherView
 
-    private var phase: Phase = .idle
+    private var _phase: Phase = .idle
     private var primedApps: [NSRunningApplication] = []
     private var primedIndex: Int = 0
     private var rows: [SwitcherRow] = []
@@ -27,6 +28,12 @@ final class SwitcherController: SwitcherViewDelegate {
     private var windowsOnlyMode: Bool = false
     private var windowsOnlyPid: pid_t? = nil
     private var windowsOnlyPrimedDelta: Int = 0
+
+    /// Monotonic token bumped on every `reveal()` and `cancel()`. Background
+    /// callbacks capture the value at dispatch time and bail out on return if
+    /// the token has changed — prevents rapid Cmd+Tab → Esc → Cmd+Tab from
+    /// landing stale rows after a fresh reveal.
+    private var revealGeneration: UInt64 = 0
 
     let revealDelay: TimeInterval = 0.100
 
@@ -51,19 +58,23 @@ final class SwitcherController: SwitcherViewDelegate {
         cache.start(mru: mru)
         let installed = hotkey.install()
         if !installed {
-            NSLog("[BetterCmdTab] CGEventTap installation failed — Accessibility not trusted?")
+            Log.switcher.error("CGEventTap installation failed — Accessibility not trusted?")
             return
         }
         hotkey.onEvent = { [weak self] event in
             guard let self else { return }
             self.handle(event)
         }
-        hotkey.isSwitching = { [weak self] in
-            guard let self else { return false }
-            return self.phase != .idle
-        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.prewarmPanel()
+        }
+    }
+
+    private var phase: Phase {
+        get { _phase }
+        set {
+            _phase = newValue
+            hotkey.setSwitching(newValue != .idle)
         }
     }
 
@@ -221,7 +232,6 @@ final class SwitcherController: SwitcherViewDelegate {
             windowsOnlyPrimedDelta = delta
             primedApps = [front]
             primedIndex = 0
-            NSLog("[BetterCmdTab] advanceWindowsOnly idle: front=\(front.localizedName ?? "?")[\(front.processIdentifier)] delta=\(delta)")
             schedulePrimedReveal()
         case .primed:
             windowsOnlyPrimedDelta += delta
@@ -243,8 +253,6 @@ final class SwitcherController: SwitcherViewDelegate {
             } else {
                 primedIndex = primedApps.count - 1
             }
-            let preview = primedApps.prefix(4).map { "\($0.localizedName ?? "?")[\($0.processIdentifier)]" }.joined(separator: " | ")
-            NSLog("[BetterCmdTab] advance idle: delta=\(delta), primedIdx=\(primedIndex), apps=\(preview)")
             schedulePrimedReveal()
         case .primed:
             guard !primedApps.isEmpty else { return }
@@ -297,6 +305,9 @@ final class SwitcherController: SwitcherViewDelegate {
             return
         }
 
+        revealGeneration &+= 1
+        let gen = revealGeneration
+
         let snapshotApps = primedApps
         let targetIdx = primedIndex
         let targetPid = snapshotApps.indices.contains(targetIdx)
@@ -337,7 +348,7 @@ final class SwitcherController: SwitcherViewDelegate {
             // Cache already fresh — kick a background refresh through the cache
             // layer (single AX scan, not a duplicate) and re-apply when ready.
             cache.scheduleFullRefresh { [weak self] in
-                guard let self else { return }
+                guard let self, gen == self.revealGeneration else { return }
                 let fresh = self.cache.rows(orderedBy: self.mru.order)
                 self.applyFullSnapshot(fresh, anchorPid: targetPid)
             }
@@ -347,13 +358,17 @@ final class SwitcherController: SwitcherViewDelegate {
             DispatchQueue.global(qos: .userInteractive).async { [weak self] in
                 let fresh = AppCatalog.snapshot(orderedBy: mruOrder)
                 DispatchQueue.main.async {
-                    self?.applyFullSnapshot(fresh, anchorPid: targetPid)
+                    guard let self, gen == self.revealGeneration else { return }
+                    self.applyFullSnapshot(fresh, anchorPid: targetPid)
                 }
             }
         }
     }
 
     private func revealWindowsOnly(pid: pid_t) {
+        revealGeneration &+= 1
+        let gen = revealGeneration
+
         var filtered = cache.rows(orderedBy: mru.order).filter { $0.pid == pid }
         if filtered.isEmpty {
             filtered = AppCatalog.snapshot(orderedBy: mru.order).filter { $0.pid == pid }
@@ -373,13 +388,12 @@ final class SwitcherController: SwitcherViewDelegate {
         view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
+        cache.setPanelVisible(true)
 
-        let mruOrder = mru.order
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            let fresh = AppCatalog.snapshot(orderedBy: mruOrder).filter { $0.pid == pid }
-            DispatchQueue.main.async {
-                self?.applyWindowsOnlySnapshot(fresh)
-            }
+        cache.scheduleFullRefresh { [weak self] in
+            guard let self, gen == self.revealGeneration else { return }
+            let fresh = self.cache.rows(orderedBy: self.mru.order).filter { $0.pid == pid }
+            self.applyWindowsOnlySnapshot(fresh)
         }
     }
 
@@ -415,14 +429,12 @@ final class SwitcherController: SwitcherViewDelegate {
         case .visible:
             if rows.indices.contains(index) {
                 let row = rows[index]
-                NSLog("[BetterCmdTab] commit visible: row=\(row.appName)[\(row.pid)] title=\(row.windowTitle)")
                 mru.bump(row.pid)
                 pendingActivation = { Activator.activate(row) }
             }
         case .primed:
             if primedApps.indices.contains(primedIndex) {
                 let app = primedApps[primedIndex]
-                NSLog("[BetterCmdTab] commit primed: app=\(app.localizedName ?? "?")[\(app.processIdentifier)] idx=\(primedIndex)")
                 mru.bump(app.processIdentifier)
                 pendingActivation = { Activator.activateApp(app) }
             }
@@ -430,6 +442,7 @@ final class SwitcherController: SwitcherViewDelegate {
             break
         }
 
+        revealGeneration &+= 1
         phase = .idle
         cache.setPanelVisible(false)
         panel.dismiss()
@@ -445,6 +458,7 @@ final class SwitcherController: SwitcherViewDelegate {
     private func cancel() {
         revealTimer?.invalidate()
         revealTimer = nil
+        revealGeneration &+= 1
         phase = .idle
         cache.setPanelVisible(false)
         panel.dismiss()
@@ -459,8 +473,7 @@ final class SwitcherController: SwitcherViewDelegate {
     private func performOnVisibleTarget(_ action: (SwitcherRow) -> Void) {
         guard phase == .visible, rows.indices.contains(index) else { return }
         action(rows[index])
-        let snapshot = rowFingerprint(rows)
-        scheduleRefresh(previous: snapshot, retriesLeft: 6)
+        scheduleVisibleRefresh()
     }
 
     private func performCloseAction() {
@@ -484,60 +497,28 @@ final class SwitcherController: SwitcherViewDelegate {
         index = min(index, rows.count - 1)
         applyPrefixReorder()
 
-        let snapshot = rowFingerprint(rows)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.refreshRows(previous: snapshot, retriesLeft: 8)
-        }
+        scheduleVisibleRefresh()
     }
 
-    private struct RowFingerprint: Equatable {
-        let entries: [Entry]
-        struct Entry: Equatable {
-            let pid: pid_t
-            let title: String
-            let hasWindow: Bool
-            let isMinimized: Bool
-            let isHidden: Bool
+    /// AXObserver-driven refresh of visible rows. Replaces the prior 8×96ms
+    /// busy-poll: the AX target (close button / minimize / hide) triggers an
+    /// AX notification → cache.bumpApp → next scheduleFullRefresh completion
+    /// re-applies fresh rows once. Generation token prevents stale apply if
+    /// the panel was dismissed in the meantime.
+    private func scheduleVisibleRefresh() {
+        let gen = revealGeneration
+        cache.scheduleFullRefresh { [weak self] in
+            guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
+            let fresh = self.cache.rows(orderedBy: self.mru.order)
+            if fresh.isEmpty {
+                self.cancel()
+                return
+            }
+            self.rows = fresh
+            self.labels = RowLabels.labels(for: fresh)
+            self.index = min(self.index, fresh.count - 1)
+            self.applyPrefixReorder()
         }
-    }
-
-    private func rowFingerprint(_ rows: [SwitcherRow]) -> RowFingerprint {
-        RowFingerprint(entries: rows.map {
-            .init(
-                pid: $0.pid,
-                title: $0.windowTitle,
-                hasWindow: $0.window != nil,
-                isMinimized: $0.isMinimized,
-                isHidden: $0.app.isHidden
-            )
-        })
-    }
-
-    private func scheduleRefresh(previous: RowFingerprint, retriesLeft: Int) {
-        let delay: TimeInterval = retriesLeft >= 4 ? 0.08 : 0.12
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.refreshRows(previous: previous, retriesLeft: retriesLeft)
-        }
-    }
-
-    private func refreshRows(previous: RowFingerprint, retriesLeft: Int) {
-        guard phase == .visible else { return }
-        let fresh = AppCatalog.snapshot(orderedBy: mru.order)
-        let freshFingerprint = rowFingerprint(fresh)
-
-        if freshFingerprint == previous && retriesLeft > 0 {
-            scheduleRefresh(previous: previous, retriesLeft: retriesLeft - 1)
-            return
-        }
-
-        if fresh.isEmpty {
-            cancel()
-            return
-        }
-        rows = fresh
-        labels = RowLabels.labels(for: rows)
-        index = min(index, rows.count - 1)
-        applyPrefixReorder()
     }
 
     private func applyPrefixReorder() {

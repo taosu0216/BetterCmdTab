@@ -62,18 +62,38 @@ enum PrivateAPI {
     private static let getProcessForPIDFn: (@convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus)? =
         sym("GetProcessForPID", in: RTLD_DEFAULT_HANDLE)
 
+    /// One-shot startup diagnostic. Returns the list of dlsym symbols that
+    /// failed to resolve, so AppDelegate can surface a single warning instead
+    /// of every call site silently no-opping.
+    static func selfCheck() -> [String] {
+        var missing: [String] = []
+        if axCreateWithRemoteTokenFn == nil { missing.append("_AXUIElementCreateWithRemoteToken") }
+        if axGetWindowFn == nil { missing.append("_AXUIElementGetWindow") }
+        if setFrontProcFn == nil { missing.append("_SLPSSetFrontProcessWithOptions") }
+        if postEventFn == nil { missing.append("SLPSPostEventRecordTo") }
+        if getProcessForPIDFn == nil { missing.append("GetProcessForPID") }
+        return missing
+    }
+
     /// Raise a specific window across Spaces (including a fullscreen window
     /// living on its own Space). The public `kAXRaiseAction` and
     /// `NSRunningApplication.activate()` cannot switch the user to a Space
     /// they're not on; SkyLight's private `_SLPSSetFrontProcessWithOptions` +
     /// `SLPSPostEventRecordTo` synthetic event do.
-    static func raiseWindow(pid: pid_t, wid: CGWindowID) {
-        guard wid != 0 else { return }
+    ///
+    /// Returns true when both SLPS calls dispatched successfully — the caller
+    /// can then skip the `NSWorkspace.openApplication` fallback (which would
+    /// otherwise race and reset focus to the app's last-active window rather
+    /// than the one we just raised).
+    @discardableResult
+    static func raiseWindow(pid: pid_t, wid: CGWindowID) -> Bool {
+        guard wid != 0 else { return false }
         var psn = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: 0)
-        guard let getPSN = getProcessForPIDFn, getPSN(pid, &psn) == noErr else { return }
+        guard let getPSN = getProcessForPIDFn, getPSN(pid, &psn) == noErr else { return false }
+        guard let setFront = setFrontProcFn, let postEvent = postEventFn else { return false }
 
         // mode 2 = userGenerated — required for the Space switch to occur.
-        _ = setFrontProcFn?(&psn, wid, 2)
+        let setErr = setFront(&psn, wid, 2)
 
         // Post a synthetic event so the window server promotes our raise
         // request. Without this, fullscreen windows often stay backgrounded.
@@ -86,8 +106,9 @@ enum PrivateAPI {
             for i in 0..<4 { bytes[0x3c + i] = src[i] }
         }
         bytes[0x20] = 0x02
-        bytes.withUnsafeMutableBufferPointer { buf in
-            _ = postEventFn?(&psn, buf.baseAddress!)
+        let postErr = bytes.withUnsafeMutableBufferPointer { buf -> CGError in
+            postEvent(&psn, buf.baseAddress!)
         }
+        return setErr == .success && postErr == .success
     }
 }

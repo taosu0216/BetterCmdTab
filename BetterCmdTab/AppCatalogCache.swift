@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 @MainActor
 final class AppCatalogCache {
@@ -9,38 +10,38 @@ final class AppCatalogCache {
 
     private(set) var entries: [pid_t: AppCacheEntry] = [:]
     private var pendingRefresh = false
+    private var pendingBumps: Set<pid_t> = []
     private weak var mru: MRUTracker?
     private var observers: [NSObjectProtocol] = []
-    private var periodicTimer: Timer?
-    private var isPanelVisible: Bool = false
+    private var axObservers: [pid_t: AXObserver] = [:]
     private var pendingOneShotCompletions: [() -> Void] = []
     private let snapshotQueue = DispatchQueue(label: "BetterCmdTab.snapshot", qos: .userInteractive, attributes: .concurrent)
 
-    private static let idleRefreshInterval: TimeInterval = 10.0
-    private static let activeRefreshInterval: TimeInterval = 2.5
+    /// AX notifications subscribed per running app. Together these cover every
+    /// state change that affects the switcher rows: window add/remove,
+    /// minimize/restore, title change, focus change, hide/unhide.
+    private static let axNotifications: [String] = [
+        kAXWindowCreatedNotification as String,
+        kAXUIElementDestroyedNotification as String,
+        kAXWindowMiniaturizedNotification as String,
+        kAXWindowDeminiaturizedNotification as String,
+        kAXTitleChangedNotification as String,
+        kAXFocusedWindowChangedNotification as String,
+        kAXApplicationHiddenNotification as String,
+        kAXApplicationShownNotification as String,
+    ]
 
     func start(mru: MRUTracker) {
         self.mru = mru
-        installObservers()
+        installWorkspaceObservers()
+        installAXObserversForAllApps()
         scheduleFullRefresh()
-        installTimer(interval: Self.idleRefreshInterval)
-    }
-
-    private func installTimer(interval: TimeInterval) {
-        periodicTimer?.invalidate()
-        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleFullRefresh()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        periodicTimer = timer
     }
 
     func setPanelVisible(_ visible: Bool) {
-        guard visible != isPanelVisible else { return }
-        isPanelVisible = visible
-        installTimer(interval: visible ? Self.activeRefreshInterval : Self.idleRefreshInterval)
+        // Kept for API compatibility. AXObserver model removed the periodic
+        // timer entirely — visibility no longer affects refresh cadence.
+        _ = visible
     }
 
     func rows(orderedBy mru: [pid_t]) -> [SwitcherRow] {
@@ -105,6 +106,7 @@ final class AppCatalogCache {
                 guard let self else { return }
                 self.entries = fresh
                 self.pendingRefresh = false
+                IconCache.prewarm(pids: Array(fresh.keys))
                 let pending = self.pendingOneShotCompletions
                 self.pendingOneShotCompletions.removeAll()
                 for cb in pending { cb() }
@@ -121,13 +123,17 @@ final class AppCatalogCache {
         let count = candidates.count
         guard count > 0 else { return [:] }
 
+        let cgMap = WindowEnumerator.snapshotCGWindowMap()
+
         var windowsBuffer: [[WindowInfo]] = Array(repeating: [], count: count)
         windowsBuffer.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: count) { i in
                 let app = candidates[i]
+                let pid = app.processIdentifier
                 buffer[i] = WindowEnumerator.windows(
-                    forPid: app.processIdentifier,
-                    isRegularApp: app.activationPolicy == .regular
+                    forPid: pid,
+                    isRegularApp: app.activationPolicy == .regular,
+                    expectedCGWindowIDs: cgMap[pid] ?? []
                 )
             }
         }
@@ -146,7 +152,7 @@ final class AppCatalogCache {
         return dict
     }
 
-    private func installObservers() {
+    private func installWorkspaceObservers() {
         let nc = NSWorkspace.shared.notificationCenter
         let perAppNames: [NSNotification.Name] = [
             NSWorkspace.didActivateApplicationNotification,
@@ -168,6 +174,7 @@ final class AppCatalogCache {
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid = app.processIdentifier
             Task { @MainActor [weak self] in
+                self?.uninstallAXObserver(forPid: pid)
                 self?.entries.removeValue(forKey: pid)
                 IconCache.evict(pid)
             }
@@ -177,10 +184,68 @@ final class AppCatalogCache {
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid = app.processIdentifier
             Task { @MainActor [weak self] in
+                self?.installAXObserver(forPid: pid)
                 self?.bumpApp(pid: pid)
             }
         }
         observers.append(launchObs)
+    }
+
+    private func installAXObserversForAllApps() {
+        let selfPid = getpid()
+        for app in NSWorkspace.shared.runningApplications where app.processIdentifier != selfPid {
+            installAXObserver(forPid: app.processIdentifier)
+        }
+    }
+
+    private func installAXObserver(forPid pid: pid_t) {
+        guard pid != getpid(), axObservers[pid] == nil else { return }
+        var observer: AXObserver?
+        let cb: AXObserverCallback = { _, element, _, refcon in
+            guard let refcon else { return }
+            let cache = Unmanaged<AppCatalogCache>.fromOpaque(refcon).takeUnretainedValue()
+            var elemPid: pid_t = 0
+            AXUIElementGetPid(element, &elemPid)
+            DispatchQueue.main.async {
+                cache.scheduleBumpApp(pid: elemPid)
+            }
+        }
+        let result = AXObserverCreate(pid, cb, &observer)
+        guard result == .success, let observer else {
+            // App may not be AX-ready yet — workspace `didLaunchApplication`
+            // fires before AX server registers. Skip silently; next bumpApp
+            // through workspace events still keeps cache fresh.
+            return
+        }
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let axApp = AXUIElementCreateApplication(pid)
+        for name in Self.axNotifications {
+            _ = AXObserverAddNotification(observer, axApp, name as CFString, refcon)
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        axObservers[pid] = observer
+    }
+
+    private func uninstallAXObserver(forPid pid: pid_t) {
+        guard let observer = axObservers.removeValue(forKey: pid) else { return }
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+    }
+
+    /// Coalesces AX notification storms — bursts of `kAXTitleChanged` or rapid
+    /// window creation collapse to a single bumpApp call within the next run
+    /// loop tick.
+    private func scheduleBumpApp(pid: pid_t) {
+        guard pid != getpid() else { return }
+        let wasEmpty = pendingBumps.isEmpty
+        pendingBumps.insert(pid)
+        if wasEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let toBump = self.pendingBumps
+                self.pendingBumps.removeAll()
+                for p in toBump { self.bumpApp(pid: p) }
+            }
+        }
     }
 
     func bumpApp(pid: pid_t) {
@@ -196,7 +261,12 @@ final class AppCatalogCache {
         }
         let isRegular = policy == .regular
         snapshotQueue.async { [weak self] in
-            let windows = WindowEnumerator.windows(forPid: pid, isRegularApp: isRegular)
+            let cgMap = WindowEnumerator.snapshotCGWindowMap()
+            let windows = WindowEnumerator.windows(
+                forPid: pid,
+                isRegularApp: isRegular,
+                expectedCGWindowIDs: cgMap[pid] ?? []
+            )
             DispatchQueue.main.async {
                 guard let self else { return }
                 if policy == .regular {
@@ -210,11 +280,14 @@ final class AppCatalogCache {
         }
     }
 
-    deinit {
+    nonisolated deinit {
         let nc = NSWorkspace.shared.notificationCenter
-        for obs in observers {
-            nc.removeObserver(obs)
+        let snapshot = MainActor.assumeIsolated { (observers, axObservers) }
+        for o in snapshot.0 {
+            nc.removeObserver(o)
         }
-        periodicTimer?.invalidate()
+        for (_, observer) in snapshot.1 {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        }
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CoreGraphics
 
 struct WindowInfo {
     let ref: AXUIElement
@@ -27,11 +28,50 @@ private struct AXRef: Hashable {
 }
 
 enum WindowEnumerator {
-    private static let bruteForceLimit: UInt64 = 256
+    /// 1024 covers fullscreen windows that get allocated late in the AX
+    /// element id space. With CG hint + early-exit the scan typically stops
+    /// well before this cap.
+    private static let bruteForceLimit: UInt64 = 1024
     private static let preFilterTimeout: Float = 0.025
     private static let confirmedTimeout: Float = 0.2
 
-    static func windows(forPid pid: pid_t, isRegularApp: Bool = true) -> [WindowInfo] {
+    /// Snapshot of every window grouped by owner pid via the public
+    /// `CGWindowListCopyWindowInfo` API. Uses `.optionAll` (not
+    /// `.optionOnScreenOnly`) so fullscreen windows living on their own
+    /// Spaces are included — they're invisible from the current Space and
+    /// would otherwise drop out of the hint set, causing the brute scan to
+    /// miss them entirely.
+    static func snapshotCGWindowMap() -> [pid_t: Set<CGWindowID>] {
+        let opts: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+        guard let cfArray = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
+            return [:]
+        }
+        let selfPid = getpid()
+        var result: [pid_t: Set<CGWindowID>] = [:]
+        for entry in cfArray {
+            guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID != selfPid else { continue }
+            let layer = (entry[kCGWindowLayer as String] as? Int) ?? 0
+            if layer != 0 { continue }
+            let alpha = (entry[kCGWindowAlpha as String] as? Double) ?? 1.0
+            if alpha <= 0 { continue }
+            guard let widNum = entry[kCGWindowNumber as String] as? Int else { continue }
+            let wid = CGWindowID(widNum)
+            if let bounds = entry[kCGWindowBounds as String] as? [String: Any] {
+                let w = (bounds["Width"] as? Double) ?? 0
+                let h = (bounds["Height"] as? Double) ?? 0
+                if w < 100 || h < 100 { continue }
+            }
+            result[ownerPID, default: []].insert(wid)
+        }
+        return result
+    }
+
+    static func windows(
+        forPid pid: pid_t,
+        isRegularApp: Bool = true,
+        expectedCGWindowIDs: Set<CGWindowID> = []
+    ) -> [WindowInfo] {
         let axApp = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(axApp, Self.confirmedTimeout)
 
@@ -57,18 +97,27 @@ enum WindowEnumerator {
             for w in axWindows { appendIfNew(w) }
         }
 
-        // Brute-force scan only for regular (Dock-visible) apps. Accessory apps
-        // (menu-bar utilities like Clop, Bartender) often expose ghost AXWindow
-        // refs for popovers that the remote-token API returns even when closed.
-        if isRegularApp {
+        // Skip brute-force AX scan when the CG window list says AX already has
+        // every on-screen window covered. Apps with no CG-AX gap (the common
+        // case) pay zero brute-scan cost.
+        let needBruteScan: Bool
+        if expectedCGWindowIDs.isEmpty {
+            needBruteScan = isRegularApp
+        } else {
+            needBruteScan = isRegularApp && !expectedCGWindowIDs.isSubset(of: seenByWid)
+        }
+
+        if needBruteScan {
             let acceptedSubroles: Set<String> = [
                 kAXStandardWindowSubrole as String,
                 kAXDialogSubrole as String,
             ]
             for axId: UInt64 in 0..<bruteForceLimit {
+                // Early exit once CG hint fully covered.
+                if !expectedCGWindowIDs.isEmpty, expectedCGWindowIDs.isSubset(of: seenByWid) {
+                    break
+                }
                 guard let e = PrivateAPI.axElement(pid: pid, axId: axId) else { continue }
-                // Fast pre-filter: most axIds are non-window elements. Use tight
-                // timeout to skip them quickly. Bump it once role confirmed.
                 AXUIElementSetMessagingTimeout(e, Self.preFilterTimeout)
 
                 var elemPid: pid_t = 0
@@ -87,14 +136,20 @@ enum WindowEnumerator {
                 let wid = PrivateAPI.cgWindowId(of: e)
                 guard wid != 0 else { continue }
 
-                var sizeValue: AnyObject?
-                AXUIElementCopyAttributeValue(e, kAXSizeAttribute as CFString, &sizeValue)
-                if let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
-                    var size = CGSize.zero
-                    AXValueGetValue(sv as! AXValue, .cgSize, &size)
-                    if size.width < 100 || size.height < 100 { continue }
+                if !expectedCGWindowIDs.isEmpty {
+                    // CG hint mode: only accept windows the CG list confirmed.
+                    if !expectedCGWindowIDs.contains(wid) { continue }
                 } else {
-                    continue
+                    // Legacy size filter when no CG hint available.
+                    var sizeValue: AnyObject?
+                    AXUIElementCopyAttributeValue(e, kAXSizeAttribute as CFString, &sizeValue)
+                    if let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
+                        var size = CGSize.zero
+                        AXValueGetValue(sv as! AXValue, .cgSize, &size)
+                        if size.width < 100 || size.height < 100 { continue }
+                    } else {
+                        continue
+                    }
                 }
 
                 appendIfNew(e)
@@ -108,17 +163,12 @@ enum WindowEnumerator {
             kAXStandardWindowSubrole as String,
             kAXDialogSubrole as String,
         ]
-        // Native macOS tab merging (Safari/Finder/TextEdit) exposes each tab
-        // as a separate AXWindow. Siblings share the same kAXTabsAttribute
-        // tab-button list. Group windows by that signature and keep one.
         var seenTabGroups: Set<[AXRef]> = []
         for window in elements {
             AXUIElementSetMessagingTimeout(window, Self.confirmedTimeout)
             var subroleValue: AnyObject?
             AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subroleValue)
             let subrole = (subroleValue as? String) ?? ""
-            // Reject popovers, status items, panels, floating UI etc — accept
-            // only AXStandardWindow / AXDialog (real Dock-switchable windows).
             guard acceptedSubroles.contains(subrole) else { continue }
 
             var tabsValue: AnyObject?

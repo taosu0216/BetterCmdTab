@@ -30,6 +30,7 @@ enum Activator {
 
     static func activate(_ row: SwitcherRow) {
         let app = row.app
+        let pid = row.pid
 
         if app.isHidden {
             app.unhide()
@@ -50,43 +51,44 @@ enum Activator {
             AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }
 
-        // Non-AppKit windowing (Ghostty/Alacritty/Wezterm and similar
-        // GPU-rendered apps) won't receive keyboard focus from
-        // NSRunningApplication.activate() alone — they listen for AX main/
-        // focused attribute changes. Set both before raise so the app's own
-        // focus dispatch fires when activation lands.
-        AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
-        AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        // Order matches process activation first (synchronous
+        // path via NSRunningApplication.activate), then per-window raise via
+        // AX + SLPS. `NSWorkspace.openApplication` was racing — its async
+        // completion fired after our raise and overrode focus with the app's
+        // last-active window.
+        activateProcess(app)
 
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-        // Cross-Space raise: kAXRaiseAction + NSRunningApplication.activate()
-        // cannot move the user to a fullscreen Space that hosts only the target
-        // window. SkyLight's private SLPS path handles that.
+
         let wid = PrivateAPI.cgWindowId(of: window)
         if wid != 0 {
-            PrivateAPI.raiseWindow(pid: row.pid, wid: wid)
+            PrivateAPI.raiseWindow(pid: pid, wid: wid)
         }
-        bringToFront(app)
 
-        // After the app process is frontmost, re-assert focus on the target
-        // window. Some apps reset focused window during activation handshake;
-        // a second focused/main write inside the app's run loop pins it.
-        let pid = row.pid
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            let axApp = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(axApp, 0.1)
-            AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-            AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
-            AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        // Non-AppKit windowing (Ghostty/Alacritty/Wezterm GPU-rendered apps)
+        // doesn't auto-route keyboard focus on NSApplication activation —
+        // it listens for AX focus changes. Write directly; we're already
+        // post-activation so the AX server accepts.
+        AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+    }
+
+    private static func activateProcess(_ app: NSRunningApplication) {
+        if #available(macOS 14.0, *) {
+            _ = app.activate(from: NSRunningApplication.current, options: [])
+        } else {
+            app.activate(options: [.activateIgnoringOtherApps])
         }
     }
 
-    private static func bringToFront(_ app: NSRunningApplication) {
+    private static func bringToFront(_ app: NSRunningApplication, completion: (() -> Void)? = nil) {
         if let url = app.bundleURL {
             let cfg = NSWorkspace.OpenConfiguration()
             cfg.activates = true
             cfg.createsNewApplicationInstance = false
-            NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, _ in }
+            NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, _ in
+                completion?()
+            }
             return
         }
         if #available(macOS 14.0, *) {
@@ -94,6 +96,7 @@ enum Activator {
         } else {
             app.activate(options: [.activateIgnoringOtherApps])
         }
+        completion?()
     }
 
     private static func openFreshWindow(for app: NSRunningApplication) {
@@ -124,7 +127,7 @@ enum Activator {
         let pid = row.pid
         let isFullscreen = row.isFullscreen
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task.detached(priority: .userInitiated) {
             guard let window else { return }
 
             if isFullscreen {
@@ -133,16 +136,18 @@ enum Activator {
                 if wid != 0 {
                     PrivateAPI.raiseWindow(pid: pid, wid: wid)
                 }
-                Thread.sleep(forTimeInterval: 0.6)
+                // Space transition typically ~400ms on Apple Silicon. 450ms
+                // gives headroom without blocking a worker thread.
+                try? await Task.sleep(nanoseconds: 450_000_000)
                 postKeyShortcut(pid: pid, keyCode: 13, axModifiers: 0)
                 return
             }
 
-            pressCloseButton(window: window, attempts: 3)
+            await pressCloseButton(window: window, attempts: 3)
         }
     }
 
-    private static func pressCloseButton(window: AXUIElement, attempts: Int) {
+    private static func pressCloseButton(window: AXUIElement, attempts: Int) async {
         for i in 0..<attempts {
             var buttonValue: AnyObject?
             let err = AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &buttonValue)
@@ -152,7 +157,7 @@ enum Activator {
                 return
             }
             if i < attempts - 1 {
-                Thread.sleep(forTimeInterval: 0.15)
+                try? await Task.sleep(nanoseconds: 150_000_000)
             }
         }
     }

@@ -32,13 +32,17 @@ enum AppCatalog {
         let count = candidates.count
         guard count > 0 else { return [] }
 
+        let cgMap = WindowEnumerator.snapshotCGWindowMap()
+
         var windowsBuffer: [[WindowInfo]] = Array(repeating: [], count: count)
         windowsBuffer.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: count) { i in
                 let app = candidates[i]
+                let pid = app.processIdentifier
                 buffer[i] = WindowEnumerator.windows(
-                    forPid: app.processIdentifier,
-                    isRegularApp: app.activationPolicy == .regular
+                    forPid: pid,
+                    isRegularApp: app.activationPolicy == .regular,
+                    expectedCGWindowIDs: cgMap[pid] ?? []
                 )
             }
         }

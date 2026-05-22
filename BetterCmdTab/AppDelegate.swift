@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @main
 @MainActor
@@ -21,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installStatusItem()
+
+        let missing = PrivateAPI.selfCheck()
+        if !missing.isEmpty {
+            Log.priv.warning("Missing private symbols: \(missing.joined(separator: ", "), privacy: .public)")
+        }
 
         // Refuse to start the switcher (and updater) while running from a
         // translocated mount — Gatekeeper Path Randomization will keep
