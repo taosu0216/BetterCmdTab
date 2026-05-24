@@ -14,13 +14,15 @@ final class AppCatalogCache {
     private weak var mru: MRUTracker?
     private var observers: [NSObjectProtocol] = []
     private var axObservers: [pid_t: AXObserver] = [:]
+    private var axObserversInstalling: Set<pid_t> = []
     private var pendingOneShotCompletions: [() -> Void] = []
     private let snapshotQueue = DispatchQueue(label: "BetterCmdTab.snapshot", qos: .userInteractive, attributes: .concurrent)
+    private let axInstallQueue = DispatchQueue(label: "BetterCmdTab.axInstall", qos: .utility, attributes: .concurrent)
 
     /// AX notifications subscribed per running app. Together these cover every
     /// state change that affects the switcher rows: window add/remove,
     /// minimize/restore, title change, focus change, hide/unhide.
-    private static let axNotifications: [String] = [
+    nonisolated private static let axNotifications: [String] = [
         kAXWindowCreatedNotification as String,
         kAXUIElementDestroyedNotification as String,
         kAXWindowMiniaturizedNotification as String,
@@ -202,24 +204,52 @@ final class AppCatalogCache {
         observers.append(launchObs)
     }
 
-    /// Stagger per-app AX observer install across run loop ticks so the main
-    /// thread stays responsive during launch. `AXObserverAddNotification` has
-    /// no timeout API and can stall ~50–100ms when the target app is slow —
-    /// batching all apps inline blocked startup by 10+ seconds.
+    /// Install AX observers for every running app. The blocking AX calls
+    /// (`AXObserverCreate` + 8× `AXObserverAddNotification`, each up to 0.2s
+    /// when the target app is slow) run on a concurrent background queue so
+    /// they never starve the main run loop. Without this, every hotkey event
+    /// dispatched to main from the input thread had to wait behind the
+    /// pending install backlog — turning the very first Cmd+Tab after launch
+    /// into a 3–4s lag spike.
     private func installAXObserversForAllApps() {
-        let pids = NSWorkspace.shared.runningApplications
-            .map(\.processIdentifier)
-        var iterator = pids.makeIterator()
-        func step() {
-            guard let pid = iterator.next() else { return }
+        let pids = NSWorkspace.shared.runningApplications.map(\.processIdentifier)
+        for pid in pids {
             installAXObserver(forPid: pid)
-            DispatchQueue.main.async(execute: step)
         }
-        DispatchQueue.main.async(execute: step)
     }
 
     private func installAXObserver(forPid pid: pid_t) {
-        guard axObservers[pid] == nil else { return }
+        guard axObservers[pid] == nil, !axObserversInstalling.contains(pid) else { return }
+        axObserversInstalling.insert(pid)
+        // Encode the refcon as a bit-pattern integer so it can cross the
+        // sendable boundary without forcing an unchecked wrapper. The
+        // pointer is stable for `self`'s lifetime and the observer callback
+        // is always invoked while `self` is alive (uninstall stops it).
+        let refconBits = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+        axInstallQueue.async { [weak self] in
+            guard let refcon = UnsafeMutableRawPointer(bitPattern: refconBits) else { return }
+            let observer = Self.buildAXObserver(pid: pid, refcon: refcon)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.axObserversInstalling.remove(pid)
+                guard let observer else {
+                    // App may not be AX-ready yet — workspace
+                    // `didLaunchApplication` fires before AX server registers.
+                    // Skip silently; next bumpApp through workspace events
+                    // still keeps cache fresh.
+                    return
+                }
+                guard self.axObservers[pid] == nil else { return }
+                CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+                self.axObservers[pid] = observer
+            }
+        }
+    }
+
+    /// Pure AX-side work. Runs off-main so per-notification timeouts cannot
+    /// stall the main run loop. The returned observer is not yet bound to
+    /// any run loop — the caller hops to main to install the source.
+    nonisolated private static func buildAXObserver(pid: pid_t, refcon: UnsafeMutableRawPointer) -> AXObserver? {
         var observer: AXObserver?
         let cb: AXObserverCallback = { _, element, _, refcon in
             guard let refcon else { return }
@@ -231,22 +261,15 @@ final class AppCatalogCache {
             }
         }
         let result = AXObserverCreate(pid, cb, &observer)
-        guard result == .success, let observer else {
-            // App may not be AX-ready yet — workspace `didLaunchApplication`
-            // fires before AX server registers. Skip silently; next bumpApp
-            // through workspace events still keeps cache fresh.
-            return
-        }
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        guard result == .success, let observer else { return nil }
         let axApp = AXUIElementCreateApplication(pid)
         // Clamp per-call blocking when the target app is slow. Without this
-        // `AXObserverAddNotification` can stall the main thread indefinitely.
+        // `AXObserverAddNotification` can stall its thread indefinitely.
         AXUIElementSetMessagingTimeout(axApp, 0.2)
-        for name in Self.axNotifications {
+        for name in axNotifications {
             _ = AXObserverAddNotification(observer, axApp, name as CFString, refcon)
         }
-        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
-        axObservers[pid] = observer
+        return observer
     }
 
     private func uninstallAXObserver(forPid pid: pid_t) {
