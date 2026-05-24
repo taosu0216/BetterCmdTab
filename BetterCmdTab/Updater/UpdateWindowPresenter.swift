@@ -1,3 +1,11 @@
+//
+//  UpdateWindowPresenter.swift
+//  BetterCmdTab
+//
+//  Manages a Sparkle-like update window (NSPanel) that hosts UpdateWindowView.
+//  Shown automatically when a new version is detected via GitHub Releases API.
+//
+
 import AppKit
 import SwiftUI
 import Combine
@@ -5,56 +13,152 @@ import Combine
 @MainActor
 final class UpdateWindowPresenter {
 
+    // MARK: - Singleton
+
     static let shared = UpdateWindowPresenter()
 
-    private var window: NSWindow?
+    // MARK: - Private Properties
+
+    private var panel: NSPanel?
+    private var updateView: UpdateWindowView?
     private var stateObserver: AnyCancellable?
+    private var betaToggleObserver: AnyCancellable?
+
+    // MARK: - Init
 
     private init() {
         observeUpdaterState()
     }
 
+    // MARK: - Public
+
     func show() {
-        if window == nil {
-            createWindow()
+        if panel == nil {
+            createPanel()
         }
 
-        guard let window else { return }
+        guard let panel else { return }
 
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
+        panel.center()
+        panel.orderFrontRegardless()
 
-        window.center()
-        window.orderFrontRegardless()
+        updateView?.forceReloadContent()
 
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
+        DispatchQueue.main.async { [weak panel] in
+            guard let panel else { return }
             NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-            window.makeKeyAndOrderFront(nil)
+            panel.makeKeyAndOrderFront(nil)
         }
     }
 
     func hide() {
-        window?.orderOut(nil)
-        restoreActivationPolicyIfNeeded()
+        panel?.orderOut(nil)
     }
 
     var isVisible: Bool {
-        window?.isVisible ?? false
+        panel?.isVisible ?? false
     }
 
     // MARK: - Private
 
-    private func createWindow() {
-        let hosting = NSHostingController(rootView: UpdateWindowView())
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Software Update"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
-        window.level = .floating
-        self.window = window
+    private func createPanel() {
+        let size = NSSize(
+            width: UpdateWindowView.Layout.windowWidth,
+            height: UpdateWindowView.Layout.windowHeight
+        )
+
+        let panel = UpdatePanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isMovableByWindowBackground = true
+        panel.level = .floating
+        panel.hasShadow = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
+        panel.animationBehavior = .documentWindow
+        panel.hidesOnDeactivate = false
+
+        panel.contentMinSize = size
+        panel.contentMaxSize = size
+
+        guard let contentView = panel.contentView else { return }
+        contentView.wantsLayer = true
+        contentView.layer?.cornerRadius = 16
+        contentView.layer?.cornerCurve = .continuous
+        contentView.layer?.masksToBounds = true
+
+        if let frameView = contentView.superview {
+            frameView.wantsLayer = true
+            if frameView.layer == nil { frameView.layer = CALayer() }
+            frameView.layer?.backgroundColor = NSColor.clear.cgColor
+            frameView.layer?.cornerRadius = 16
+            frameView.layer?.cornerCurve = .continuous
+            frameView.layer?.masksToBounds = true
+        }
+
+        let background = makeBackground(cornerRadius: 16)
+        background.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(background)
+        NSLayoutConstraint.activate([
+            background.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            background.topAnchor.constraint(equalTo: contentView.topAnchor),
+            background.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+
+        let updateView = UpdateWindowView(frame: contentView.bounds)
+        updateView.autoresizingMask = [.width, .height]
+        contentView.addSubview(updateView)
+
+        self.panel = panel
+        self.updateView = updateView
+    }
+
+    private func makeBackground(cornerRadius: CGFloat) -> NSView {
+        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            let glassView = glassClass.init(frame: .zero)
+
+            if let effectView = glassView as? NSVisualEffectView {
+                effectView.state = .active
+            }
+            if glassView.responds(to: Selector(("setCornerRadius:"))) {
+                glassView.setValue(cornerRadius, forKey: "cornerRadius")
+            }
+            if glassView.responds(to: Selector(("set_variant:"))) {
+                glassView.setValue(LiquidGlassVariant.bestSupportedVariant.rawValue, forKey: "_variant")
+            }
+            if glassView.responds(to: Selector(("setUsesAccentColor:"))) {
+                glassView.setValue(false, forKey: "usesAccentColor")
+            }
+            if glassView.responds(to: Selector(("setAutomaticGrouping:"))) {
+                glassView.setValue(true, forKey: "automaticGrouping")
+            }
+            if glassView.responds(to: Selector(("setNativeRendering:"))) {
+                glassView.setValue(true, forKey: "nativeRendering")
+            }
+            if glassView.responds(to: Selector(("setIntegratedWithWindow:"))) {
+                glassView.setValue(true, forKey: "integratedWithWindow")
+            }
+
+            glassView.wantsLayer = true
+            glassView.layer?.masksToBounds = true
+            return glassView
+        } else {
+            let effectView = NSVisualEffectView()
+            effectView.material = .popover
+            effectView.state = .active
+            effectView.blendingMode = .behindWindow
+            effectView.wantsLayer = true
+            effectView.layer?.cornerRadius = cornerRadius
+            effectView.layer?.cornerCurve = .continuous
+            effectView.layer?.masksToBounds = true
+            return effectView
+        }
     }
 
     private func observeUpdaterState() {
@@ -69,14 +173,25 @@ final class UpdateWindowPresenter {
                     break
                 }
             }
+
+        betaToggleObserver = GitHubUpdater.shared.$includePreReleases
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.isVisible else { return }
+                switch GitHubUpdater.shared.state {
+                case .downloading, .installing, .readyToInstall:
+                    return
+                default:
+                    self.hide()
+                }
+            }
     }
 
-    private func restoreActivationPolicyIfNeeded() {
-        let hasOtherVisibleWindow = NSApp.windows.contains { w in
-            w !== window && w.isVisible && !(w is NSPanel)
-        }
-        if !hasOtherVisibleWindow {
-            NSApp.setActivationPolicy(.accessory)
-        }
+    // MARK: - Custom Panel
+
+    private final class UpdatePanel: NSPanel {
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
     }
 }

@@ -112,6 +112,26 @@ struct GitHubUpdateDecision: Equatable {
     }
 }
 
+// MARK: - LastInstallAttempt breadcrumb
+
+/// Diagnostic record of the most recent install handoff. Surface this in the
+/// update window so a silent helper failure on the previous launch is visible
+/// instead of repeating the popup forever.
+struct LastInstallAttempt: Codable, Equatable {
+    enum Stage: String, Codable {
+        case handoffSpawned
+        case handoffFailed
+        case helperExited
+        case succeeded
+    }
+
+    let version: String
+    let attemptedAt: Date
+    var stage: Stage
+    var errorMessage: String?
+    var helperLogTail: String?
+}
+
 @MainActor
 final class GitHubUpdater: ObservableObject {
 
@@ -146,6 +166,7 @@ final class GitHubUpdater: ObservableObject {
             }
         }
     }
+    @Published private(set) var lastInstallAttempt: LastInstallAttempt? = nil
 
     func setCheckInterval(_ interval: UpdateCheckInterval) {
         guard interval != checkInterval else { return }
