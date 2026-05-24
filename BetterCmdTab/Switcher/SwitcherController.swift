@@ -29,6 +29,22 @@ final class SwitcherController: SwitcherViewDelegate {
     private var windowsOnlyPid: pid_t? = nil
     private var windowsOnlyPrimedDelta: Int = 0
 
+    /// Signatures of windows the user just closed locally. Any cache refresh
+    /// completing before the AX close has propagated would otherwise re-add
+    /// the row (flicker). Each entry is dropped once the cache agrees the
+    /// window is gone, or after `tombstoneTTL` as a fallback for closes that
+    /// silently fail. Matching uses CGWindowID when available and falls back
+    /// to (pid, title) — CGWindowID can transiently come back 0 on a freshly
+    /// destroyed AX element, which would otherwise let the row slip through.
+    private struct ClosedWindowSignature {
+        let pid: pid_t
+        let cgWindowId: CGWindowID
+        let title: String
+        let recordedAt: Date
+    }
+    private var closedTombstones: [ClosedWindowSignature] = []
+    private let tombstoneTTL: TimeInterval = 2.0
+
     /// Monotonic token bumped on every `reveal()` and `cancel()`. Background
     /// callbacks capture the value at dispatch time and bail out on return if
     /// the token has changed — prevents rapid Cmd+Tab → Esc → Cmd+Tab from
@@ -558,6 +574,7 @@ final class SwitcherController: SwitcherViewDelegate {
         windowsOnlyMode = false
         windowsOnlyPid = nil
         windowsOnlyPrimedDelta = 0
+        closedTombstones.removeAll()
         resetLetterBuffer()
         pendingActivation?()
     }
@@ -574,6 +591,7 @@ final class SwitcherController: SwitcherViewDelegate {
         windowsOnlyMode = false
         windowsOnlyPid = nil
         windowsOnlyPrimedDelta = 0
+        closedTombstones.removeAll()
         resetLetterBuffer()
     }
 
@@ -593,6 +611,7 @@ final class SwitcherController: SwitcherViewDelegate {
             return
         }
 
+        recordClosedTombstone(for: row)
         Activator.closeWindow(row)
 
         rows.remove(at: index)
@@ -620,14 +639,27 @@ final class SwitcherController: SwitcherViewDelegate {
             guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
             self.cache.scheduleFullRefresh { [weak self] in
                 guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
-                let fresh = self.cache.rows(orderedBy: self.mru.order)
+                let fresh = self.filterClosedTombstones(self.cache.rows(orderedBy: self.mru.order))
                 if fresh.isEmpty {
                     self.cancel()
                     return
                 }
+                // Preserve selection by row identity (pid + title + hasWindow).
+                // Plain index clamping silently shifts the highlight onto a
+                // different window when the fresh snapshot reorders rows (MRU
+                // bump after close changing focus is the common trigger), which
+                // makes the next close action hit the wrong window.
+                let currentKey: (pid_t, String, Bool)? = self.rows.indices.contains(self.index)
+                    ? (self.rows[self.index].pid, self.rows[self.index].windowTitle, self.rows[self.index].window != nil)
+                    : nil
                 self.rows = fresh
                 self.labels = RowLabels.labels(for: fresh)
-                self.index = min(self.index, fresh.count - 1)
+                if let key = currentKey,
+                   let restored = fresh.firstIndex(where: { $0.pid == key.0 && $0.windowTitle == key.1 && ($0.window != nil) == key.2 }) {
+                    self.index = restored
+                } else {
+                    self.index = min(self.index, fresh.count - 1)
+                }
                 self.applyPrefixReorder()
             }
         }
@@ -636,6 +668,61 @@ final class SwitcherController: SwitcherViewDelegate {
         } else {
             apply()
         }
+    }
+
+    private func recordClosedTombstone(for row: SwitcherRow) {
+        let wid = row.window.map { PrivateAPI.cgWindowId(of: $0) } ?? 0
+        // Record even when wid == 0 — title fallback still catches it.
+        closedTombstones.append(ClosedWindowSignature(
+            pid: row.pid,
+            cgWindowId: wid,
+            title: row.windowTitle,
+            recordedAt: Date()
+        ))
+    }
+
+    /// Drops rows whose `(pid, CGWindowID)` — or `(pid, title)` when the AX
+    /// id is unavailable — was just locally closed but whose AX destruction
+    /// hasn't propagated yet. Tombstones self-clear when the cache no longer
+    /// reports the window (cache caught up), or after `tombstoneTTL` for
+    /// closes that silently fail.
+    private func filterClosedTombstones(_ snapshot: [SwitcherRow]) -> [SwitcherRow] {
+        if closedTombstones.isEmpty { return snapshot }
+        let now = Date()
+        closedTombstones.removeAll { now.timeIntervalSince($0.recordedAt) >= tombstoneTTL }
+        if closedTombstones.isEmpty { return snapshot }
+
+        func signatureMatches(_ sig: ClosedWindowSignature, row: SwitcherRow, rowWid: CGWindowID) -> Bool {
+            guard sig.pid == row.pid else { return false }
+            if sig.cgWindowId != 0 && rowWid != 0 {
+                return sig.cgWindowId == rowWid
+            }
+            // CGWindowID unavailable on either side — fall back to title.
+            // Skip empty titles to avoid hiding sibling untitled windows.
+            guard !sig.title.isEmpty else { return false }
+            return sig.title == row.windowTitle
+        }
+
+        var result: [SwitcherRow] = []
+        result.reserveCapacity(snapshot.count)
+        var matchedSigIndices = Set<Int>()
+        for row in snapshot {
+            let rowWid = row.window.map { PrivateAPI.cgWindowId(of: $0) } ?? 0
+            var hidden = false
+            for (i, sig) in closedTombstones.enumerated() {
+                if signatureMatches(sig, row: row, rowWid: rowWid) {
+                    matchedSigIndices.insert(i)
+                    hidden = true
+                    break
+                }
+            }
+            if !hidden { result.append(row) }
+        }
+        // Drop tombstones whose windows the cache no longer reports — the
+        // close has fully propagated, so no further protection needed.
+        closedTombstones = closedTombstones.enumerated()
+            .compactMap { matchedSigIndices.contains($0.offset) ? $0.element : nil }
+        return result
     }
 
     private func applyPrefixReorder() {
