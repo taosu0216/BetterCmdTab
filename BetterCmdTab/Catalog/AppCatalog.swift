@@ -32,7 +32,7 @@ enum AppCatalog {
         let count = candidates.count
         guard count > 0 else { return [] }
 
-        let cgMap = WindowEnumerator.snapshotCGWindowMap()
+        let cgSnapshot = WindowEnumerator.snapshotCGWindowMap()
 
         var windowsBuffer: [[WindowInfo]] = Array(repeating: [], count: count)
         windowsBuffer.withUnsafeMutableBufferPointer { buffer in
@@ -42,7 +42,8 @@ enum AppCatalog {
                 buffer[i] = WindowEnumerator.windows(
                     forPid: pid,
                     isRegularApp: app.activationPolicy == .regular,
-                    expectedCGWindowIDs: cgMap[pid] ?? []
+                    expectedCGWindowIDs: cgSnapshot.ids(for: pid),
+                    cgZOrder: cgSnapshot.zOrder(for: pid)
                 )
             }
         }

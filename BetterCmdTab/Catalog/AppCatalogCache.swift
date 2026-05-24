@@ -132,7 +132,7 @@ final class AppCatalogCache {
         let count = candidates.count
         guard count > 0 else { return [:] }
 
-        let cgMap = WindowEnumerator.snapshotCGWindowMap()
+        let cgSnapshot = WindowEnumerator.snapshotCGWindowMap()
 
         var windowsBuffer: [[WindowInfo]] = Array(repeating: [], count: count)
         windowsBuffer.withUnsafeMutableBufferPointer { buffer in
@@ -143,7 +143,8 @@ final class AppCatalogCache {
                 bufferRef[i] = WindowEnumerator.windows(
                     forPid: pid,
                     isRegularApp: app.activationPolicy == .regular,
-                    expectedCGWindowIDs: cgMap[pid] ?? []
+                    expectedCGWindowIDs: cgSnapshot.ids(for: pid),
+                    cgZOrder: cgSnapshot.zOrder(for: pid)
                 )
             }
         }
@@ -285,11 +286,12 @@ final class AppCatalogCache {
         }
         let isRegular = policy == .regular
         snapshotQueue.async { [weak self] in
-            let cgMap = WindowEnumerator.snapshotCGWindowMap()
+            let cgSnapshot = WindowEnumerator.snapshotCGWindowMap()
             let windows = WindowEnumerator.windows(
                 forPid: pid,
                 isRegularApp: isRegular,
-                expectedCGWindowIDs: cgMap[pid] ?? []
+                expectedCGWindowIDs: cgSnapshot.ids(for: pid),
+                cgZOrder: cgSnapshot.zOrder(for: pid)
             )
             DispatchQueue.main.async {
                 guard let self else { return }
