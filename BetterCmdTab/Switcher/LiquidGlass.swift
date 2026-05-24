@@ -25,6 +25,13 @@ enum LiquidGlassVariant: Int, CaseIterable, Sendable {
     case slider = 21
     case camera = 22
     case cartouchePopover = 23
+
+    static var bestSupportedVariant: LiquidGlassVariant {
+        if #available(macOS 26.2, *) {
+            return .clear
+        }
+        return .regular
+    }
 }
 
 enum ScrimState: Int {
