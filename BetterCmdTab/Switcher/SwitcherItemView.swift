@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class SwitcherItemView: NSView {
+final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
     private let letterLabel = NSTextField(labelWithString: "")
     private let appNameLabel = NSTextField(labelWithString: "")
     private let imageView = NSImageView()

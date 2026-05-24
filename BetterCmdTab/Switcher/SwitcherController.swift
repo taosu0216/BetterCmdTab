@@ -119,9 +119,13 @@ final class SwitcherController: SwitcherViewDelegate {
         case .prevWindow:
             advanceWindowsOnly(by: -1)
         case .nextRow:
-            advance(by: 1, wrap: false)
+            advanceVerticalOrLinear(by: 1)
         case .prevRow:
-            advance(by: -1, wrap: false)
+            advanceVerticalOrLinear(by: -1)
+        case .spatialRight:
+            advanceHorizontal(by: 1)
+        case .spatialLeft:
+            advanceHorizontal(by: -1)
         case .releaseCmd, .commit:
             commit()
         case .escape:
@@ -284,6 +288,76 @@ final class SwitcherController: SwitcherViewDelegate {
         view.setSelectedIndex(index)
     }
 
+    /// In icon-dock mode with 2+ rows, Up/Down picks the tile in the
+    /// neighboring row whose horizontal midpoint is closest to the current
+    /// tile's, wrapping to the opposite-end row at the edges. In list mode it
+    /// wraps within the current column (stays in same column). In single-row
+    /// icon-dock it falls back to linear wrap.
+    private func advanceVerticalOrLinear(by delta: Int) {
+        if phase == .visible,
+           currentMetrics.layoutMode == .iconDock,
+           view.rowsPerColumn > 1 {
+            if let newIndex = view.neighboringRowIndex(from: index, direction: delta, wrap: true) {
+                index = newIndex
+                view.setSelectedIndex(index)
+            }
+            return
+        }
+        if phase == .visible, currentMetrics.layoutMode == .list {
+            wrapWithinColumn(by: delta)
+            return
+        }
+        advance(by: delta, wrap: true)
+    }
+
+    /// In multi-column list mode, Left/Right jumps a full column over and
+    /// wraps between the first and last columns. In single-column list or
+    /// icon-dock, it falls back to linear wrap.
+    private func advanceHorizontal(by delta: Int) {
+        if phase == .visible, currentMetrics.layoutMode == .list {
+            if view.columnCount > 1 {
+                wrapBetweenColumns(by: delta)
+            } else {
+                advanceLinearVisible(by: delta, wrap: true)
+            }
+            return
+        }
+        advance(by: delta, wrap: true)
+    }
+
+    /// Within the current list-mode column, advance by `delta` and wrap at the
+    /// top/bottom of that column (respecting that the last column may have
+    /// fewer items than rowsPerColumn).
+    private func wrapWithinColumn(by delta: Int) {
+        guard !rows.isEmpty else { return }
+        let rpc = max(1, view.rowsPerColumn)
+        let currentCol = index / rpc
+        let currentRow = index % rpc
+        let firstInCol = currentCol * rpc
+        let lastInColExclusive = min(firstInCol + rpc, rows.count)
+        let itemsInCol = max(1, lastInColExclusive - firstInCol)
+        let newRow = ((currentRow + delta) % itemsInCol + itemsInCol) % itemsInCol
+        index = firstInCol + newRow
+        view.setSelectedIndex(index)
+    }
+
+    /// Move horizontally between list-mode columns with wrap. The row offset
+    /// within the column is preserved (clamped if the target column is short).
+    private func wrapBetweenColumns(by delta: Int) {
+        guard !rows.isEmpty else { return }
+        let rpc = max(1, view.rowsPerColumn)
+        let cols = max(1, view.columnCount)
+        let currentCol = index / rpc
+        let currentRow = index % rpc
+        let newCol = ((currentCol + delta) % cols + cols) % cols
+        let firstInNewCol = newCol * rpc
+        let lastInNewColExclusive = min(firstInNewCol + rpc, rows.count)
+        let itemsInNewCol = max(1, lastInNewColExclusive - firstInNewCol)
+        let newRow = min(currentRow, itemsInNewCol - 1)
+        index = firstInNewCol + newRow
+        view.setSelectedIndex(index)
+    }
+
     private func schedulePrimedReveal() {
         phase = .primed
         revealTimer?.invalidate()
@@ -338,7 +412,7 @@ final class SwitcherController: SwitcherViewDelegate {
         }
         guard !rows.isEmpty else { cancel(); return }
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen())
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode)
         view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
@@ -384,7 +458,7 @@ final class SwitcherController: SwitcherViewDelegate {
         let delta = windowsOnlyPrimedDelta
         index = count > 0 ? ((delta % count) + count) % count : 0
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen())
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode)
         view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
@@ -409,9 +483,21 @@ final class SwitcherController: SwitcherViewDelegate {
     private func applyFullSnapshot(_ fresh: [SwitcherRow], anchorPid: pid_t?) {
         guard phase == .visible else { return }
         if fresh.isEmpty { cancel(); return }
+
+        // Preserve the user's current selection (by identity) so a Tab press
+        // landing between reveal-from-cache and this background-refreshed apply
+        // isn't reverted to the originally-primed app. Fall back to anchorPid
+        // only if the current row can't be found in the fresh snapshot.
+        let currentKey: (pid_t, String, Bool)? = rows.indices.contains(index)
+            ? (rows[index].pid, rows[index].windowTitle, rows[index].window != nil)
+            : nil
+
         rows = fresh
         labels = RowLabels.labels(for: rows)
-        if let pid = anchorPid, let match = rows.firstIndex(where: { $0.pid == pid }) {
+        if let key = currentKey,
+           let restored = rows.firstIndex(where: { $0.pid == key.0 && $0.windowTitle == key.1 && ($0.window != nil) == key.2 }) {
+            index = restored
+        } else if let pid = anchorPid, let match = rows.firstIndex(where: { $0.pid == pid }) {
             index = match
         } else {
             index = min(index, rows.count - 1)

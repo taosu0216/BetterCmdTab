@@ -10,6 +10,8 @@ final class HotkeyTap {
         case prevWindow
         case nextRow
         case prevRow
+        case spatialLeft
+        case spatialRight
         case releaseCmd
         case commit
         case escape
@@ -192,9 +194,9 @@ final class HotkeyTap {
             if isSwitchingNow() {
                 switch keyCode {
                 case Self.leftArrow:
-                    deliver(.prevApp); return nil
+                    deliver(.spatialLeft); return nil
                 case Self.rightArrow:
-                    deliver(.nextApp); return nil
+                    deliver(.spatialRight); return nil
                 case Self.upArrow:
                     deliver(.prevRow); return nil
                 case Self.downArrow:

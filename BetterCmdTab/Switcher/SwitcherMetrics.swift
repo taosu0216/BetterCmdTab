@@ -1,6 +1,7 @@
 import AppKit
 
 struct SwitcherMetrics: Equatable {
+    let layoutMode: SwitcherLayoutMode
     let scale: CGFloat
     let rowHeight: CGFloat
     let rowWidth: CGFloat
@@ -16,6 +17,19 @@ struct SwitcherMetrics: Equatable {
     let labelHeight: CGFloat
     let letterColumnWidth: CGFloat
     let letterFontSize: CGFloat
+
+    // Icon-dock layout metrics
+    let tileSize: CGFloat
+    let tileIconSize: CGFloat
+    let tileGap: CGFloat
+    let tileLabelArea: CGFloat
+    let tileNameFontSize: CGFloat
+    let tileTitleFontSize: CGFloat
+    let tileLetterFontSize: CGFloat
+    let tileLetterBadgeSize: CGFloat
+    let tileStatusIconSize: CGFloat
+    let tileSelectionInset: CGFloat
+    let tileSelectionCornerRadius: CGFloat
 
     static let baseRowHeight: CGFloat = 28
     static let baseRowWidth: CGFloat = 720
@@ -33,17 +47,44 @@ struct SwitcherMetrics: Equatable {
     static let baseLetterFontSize: CGFloat = 11
     static let referenceWidth: CGFloat = 1440
 
-    static let baseline = SwitcherMetrics.forScale(1.0)
+    // Icon-dock base metrics (sized to match macOS-default Cmd+Tab proportions).
+    static let baseTileSize: CGFloat = 80
+    static let baseTileIconSize: CGFloat = 64
+    static let baseTileGap: CGFloat = 10
+    static let baseTileLabelArea: CGFloat = 34
+    static let baseTileNameFontSize: CGFloat = 11
+    static let baseTileTitleFontSize: CGFloat = 10
+    static let baseTileLetterFontSize: CGFloat = 11
+    static let baseTileLetterBadgeSize: CGFloat = 20
+    static let baseTileStatusIconSize: CGFloat = 12
+    static let baseTileSelectionInset: CGFloat = 4
+    static let baseTileSelectionCornerRadius: CGFloat = 16
+    static let baseTileOuterPadding: CGFloat = 14
+    static let baseTileCornerRadius: CGFloat = 24
 
-    static func forScreen(_ screen: NSScreen?) -> SwitcherMetrics {
+    static let baseline = SwitcherMetrics.forScale(1.0, layoutMode: .list)
+
+    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list) -> SwitcherMetrics {
         let width = screen?.frame.width ?? referenceWidth
         let raw = width / referenceWidth
         let clamped = max(1.0, min(1.8, raw))
-        return forScale(clamped)
+        return forScale(clamped, layoutMode: layoutMode)
     }
 
-    static func forScale(_ scale: CGFloat) -> SwitcherMetrics {
-        SwitcherMetrics(
+    static func forScale(_ scale: CGFloat, layoutMode: SwitcherLayoutMode = .list) -> SwitcherMetrics {
+        let outerPadding: CGFloat
+        let cornerRadius: CGFloat
+        switch layoutMode {
+        case .list:
+            outerPadding = round(baseOuterPadding * scale)
+            cornerRadius = round(baseCornerRadius * scale)
+        case .iconDock:
+            outerPadding = round(baseTileOuterPadding * scale)
+            cornerRadius = round(baseTileCornerRadius * scale)
+        }
+
+        return SwitcherMetrics(
+            layoutMode: layoutMode,
             scale: scale,
             rowHeight: round(baseRowHeight * scale),
             rowWidth: round(baseRowWidth * scale),
@@ -52,13 +93,24 @@ struct SwitcherMetrics: Equatable {
             interGap: round(baseInterGap * scale),
             horizontalInset: round(baseHorizontalInset * scale),
             fontSize: baseFontSize * scale,
-            outerPadding: round(baseOuterPadding * scale),
-            cornerRadius: round(baseCornerRadius * scale),
+            outerPadding: outerPadding,
+            cornerRadius: cornerRadius,
             highlightCornerRadius: round(baseHighlightCornerRadius * scale),
             highlightInset: round(baseHighlightInset * scale),
             labelHeight: round(baseLabelHeight * scale),
             letterColumnWidth: round(baseLetterColumnWidth * scale),
-            letterFontSize: baseLetterFontSize * scale
+            letterFontSize: baseLetterFontSize * scale,
+            tileSize: round(baseTileSize * scale),
+            tileIconSize: round(baseTileIconSize * scale),
+            tileGap: round(baseTileGap * scale),
+            tileLabelArea: round(baseTileLabelArea * scale),
+            tileNameFontSize: baseTileNameFontSize * scale,
+            tileTitleFontSize: baseTileTitleFontSize * scale,
+            tileLetterFontSize: baseTileLetterFontSize * scale,
+            tileLetterBadgeSize: round(baseTileLetterBadgeSize * scale),
+            tileStatusIconSize: round(baseTileStatusIconSize * scale),
+            tileSelectionInset: round(baseTileSelectionInset * scale),
+            tileSelectionCornerRadius: round(baseTileSelectionCornerRadius * scale)
         )
     }
 }

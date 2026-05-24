@@ -10,6 +10,7 @@ final class GeneralSettingsViewController: NSViewController {
     private let permissionButton = NSButton(title: "", target: nil, action: nil)
 
     private let betaSwitch = NSSwitch()
+    private let layoutModePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
 
     private var cancellables = Set<AnyCancellable>()
     private var axTimer: Timer?
@@ -19,13 +20,31 @@ final class GeneralSettingsViewController: NSViewController {
         let behavior = SettingsSectionView(header: "Behavior")
         let launchRow = SettingsRowView(
             title: "Launch at login",
-            subtitle: "Start \(AppInfo.displayName) automatically when you sign in.",
             accessory: launchSwitch
         )
         launchSwitch.controlSize = .small
         launchSwitch.target = self
         launchSwitch.action = #selector(toggleLaunchAtLogin(_:))
         behavior.addContent(launchRow)
+
+        // Appearance section
+        let appearance = SettingsSectionView(header: "Appearance")
+        layoutModePopUp.controlSize = .small
+        layoutModePopUp.bezelStyle = .rounded
+        layoutModePopUp.target = self
+        layoutModePopUp.action = #selector(changeLayoutMode(_:))
+        layoutModePopUp.removeAllItems()
+        for mode in SwitcherLayoutMode.allCases {
+            layoutModePopUp.addItem(withTitle: mode.displayName)
+            if let item = layoutModePopUp.lastItem {
+                item.representedObject = mode.rawValue
+            }
+        }
+        let layoutRow = SettingsRowView(
+            title: "Switcher layout",
+            accessory: layoutModePopUp
+        )
+        appearance.addContent(layoutRow)
 
         // Permissions section
         let permissions = SettingsSectionView(header: "Permissions")
@@ -57,7 +76,6 @@ final class GeneralSettingsViewController: NSViewController {
         let updates = SettingsSectionView(header: "Update Channel")
         let betaRow = SettingsRowView(
             title: "Include beta releases",
-            subtitle: "Receive pre-release versions when checking for updates.",
             accessory: betaSwitch
         )
         betaSwitch.controlSize = .small
@@ -65,7 +83,7 @@ final class GeneralSettingsViewController: NSViewController {
         betaSwitch.action = #selector(toggleBeta(_:))
         updates.addContent(betaRow)
 
-        view = SettingsLayout.makeScrollingTab(sections: [behavior, permissions, updates])
+        view = SettingsLayout.makeScrollingTab(sections: [behavior, appearance, permissions, updates])
     }
 
     override func viewWillAppear() {
@@ -77,6 +95,8 @@ final class GeneralSettingsViewController: NSViewController {
 
         let updater = GitHubUpdater.shared
         betaSwitch.state = updater.includePreReleases ? .on : .off
+
+        applyLayoutMode(Preferences.shared.switcherLayoutMode)
 
         LaunchAtLogin.shared.$isEnabled
             .receive(on: DispatchQueue.main)
@@ -90,6 +110,11 @@ final class GeneralSettingsViewController: NSViewController {
         updater.$includePreReleases
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.betaSwitch.state = $0 ? .on : .off }
+            .store(in: &cancellables)
+
+        Preferences.shared.$switcherLayoutMode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.applyLayoutMode($0) }
             .store(in: &cancellables)
 
         startAccessibilityPolling()
@@ -114,6 +139,23 @@ final class GeneralSettingsViewController: NSViewController {
         GitHubUpdater.shared.includePreReleases = (sender.state == .on)
     }
 
+    @objc private func changeLayoutMode(_ sender: NSPopUpButton) {
+        guard
+            let raw = sender.selectedItem?.representedObject as? String,
+            let mode = SwitcherLayoutMode(rawValue: raw)
+        else { return }
+        Preferences.shared.switcherLayoutMode = mode
+    }
+
+    private func applyLayoutMode(_ mode: SwitcherLayoutMode) {
+        let targetIndex = layoutModePopUp.itemArray.firstIndex { item in
+            (item.representedObject as? String) == mode.rawValue
+        } ?? 0
+        if layoutModePopUp.indexOfSelectedItem != targetIndex {
+            layoutModePopUp.selectItem(at: targetIndex)
+        }
+    }
+
     @objc private func openSystemSettings() {
         AccessibilityCheck.promptIfNeeded()
         AccessibilityCheck.openSystemSettings()
@@ -123,12 +165,10 @@ final class GeneralSettingsViewController: NSViewController {
         if AccessibilityCheck.isTrusted {
             permissionIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Granted")
             permissionIcon.contentTintColor = .systemGreen
-            accessibilityRow.rowDescription = "Granted — \(AppInfo.displayName) can observe window focus changes."
             permissionButton.title = "Open Settings"
         } else {
             permissionIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Required")
             permissionIcon.contentTintColor = .systemOrange
-            accessibilityRow.rowDescription = "Required to detect window focus changes. Without it, \(AppInfo.displayName) cannot switch between windows."
             permissionButton.title = "Grant Access"
         }
     }

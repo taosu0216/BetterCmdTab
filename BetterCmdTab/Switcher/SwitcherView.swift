@@ -14,7 +14,7 @@ final class SwitcherView: NSView {
     private let glassBackdrop: NSView
     private let contentContainer = NSView()
     private let listContainer = NSView()
-    private var itemViews: [SwitcherItemView] = []
+    private var itemViews: [SwitcherItemViewProtocol] = []
     private var rows: [SwitcherRow] = []
     private(set) var labels: [String] = []
     private var selectedIndex: Int = 0
@@ -23,6 +23,7 @@ final class SwitcherView: NSView {
 
     private var metrics: SwitcherMetrics = .baseline
     let maxScreenHeightFraction: CGFloat = 0.85
+    let maxScreenWidthFraction: CGFloat = 0.92
 
     override init(frame frameRect: NSRect) {
         if #available(macOS 26.0, *) {
@@ -67,9 +68,15 @@ final class SwitcherView: NSView {
         self.labels = labels
         self.highlightPrefix = highlightPrefix
         self.selectedIndex = selectedIndex
+        let layoutModeChanged = metrics.layoutMode != self.metrics.layoutMode
         if metrics != self.metrics {
             self.metrics = metrics
             updateBackdropCornerRadius(metrics.cornerRadius)
+        }
+        if layoutModeChanged {
+            // Different item view class — clear the pool so rebuild picks the right type.
+            for v in itemViews { v.removeFromSuperview() }
+            itemViews.removeAll()
         }
         rebuildItemPool()
         cachedLayout = nil
@@ -103,6 +110,55 @@ final class SwitcherView: NSView {
 
     var columnCount: Int {
         computeLayout().cols
+    }
+
+    /// Returns the index of the tile in the row above (direction = -1) or
+    /// below (direction = +1) `current`, picking the tile whose horizontal
+    /// midpoint is closest to the current tile's midX. If `wrap` is true and
+    /// we'd go past the top/bottom edge, jumps to the opposite-end row.
+    /// Returns nil if there's only one row or layout has no frames.
+    func neighboringRowIndex(from current: Int, direction: Int, wrap: Bool = false) -> Int? {
+        let info = computeLayout()
+        guard info.frames.indices.contains(current) else { return nil }
+        let currentFrame = info.frames[current]
+        let currentMidX = currentFrame.midX
+
+        // Group frames into rows by Y. Frames are emitted row-by-row from the
+        // top, so consecutive frames with the same Y belong to one row.
+        let tolerance: CGFloat = 0.5
+        var rows: [[(idx: Int, midX: CGFloat)]] = []
+        for (i, f) in info.frames.enumerated() {
+            if let last = rows.last, let head = last.first, abs(info.frames[head.idx].minY - f.minY) < tolerance {
+                rows[rows.count - 1].append((i, f.midX))
+            } else {
+                rows.append([(i, f.midX)])
+            }
+        }
+
+        guard rows.count > 1 else { return nil }
+        guard let currentRowIdx = rows.firstIndex(where: { row in
+            row.contains(where: { $0.idx == current })
+        }) else { return nil }
+
+        var targetRowIdx = currentRowIdx + direction
+        if !rows.indices.contains(targetRowIdx) {
+            guard wrap else { return nil }
+            targetRowIdx = ((targetRowIdx % rows.count) + rows.count) % rows.count
+        }
+
+        let targetRow = rows[targetRowIdx]
+        guard !targetRow.isEmpty else { return nil }
+
+        var best = targetRow[0]
+        var bestDist = abs(best.midX - currentMidX)
+        for cand in targetRow.dropFirst() {
+            let dist = abs(cand.midX - currentMidX)
+            if dist < bestDist {
+                bestDist = dist
+                best = cand
+            }
+        }
+        return best.idx
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -157,9 +213,18 @@ final class SwitcherView: NSView {
         }
     }
 
+    private func makeItemView() -> SwitcherItemViewProtocol {
+        switch metrics.layoutMode {
+        case .list:
+            return SwitcherItemView(frame: .zero)
+        case .iconDock:
+            return SwitcherIconItemView(frame: .zero)
+        }
+    }
+
     private func rebuildItemPool() {
         while itemViews.count < rows.count {
-            let view = SwitcherItemView(frame: .zero)
+            let view = makeItemView()
             listContainer.addSubview(view)
             itemViews.append(view)
         }
@@ -214,17 +279,49 @@ final class SwitcherView: NSView {
 
     private func computeLayout() -> ListLayout {
         if let cachedLayout { return cachedLayout }
+        let layout: ListLayout
+        switch metrics.layoutMode {
+        case .list:
+            layout = computeListLayout()
+        case .iconDock:
+            layout = computeIconDockLayout()
+        }
+        cachedLayout = layout
+        return layout
+    }
 
+    private func computeListLayout() -> ListLayout {
         let rowH = metrics.rowHeight
-        let rowW = metrics.rowWidth
+        let baseRowW = metrics.rowWidth
         let outerPadding = metrics.outerPadding
         let count = max(rows.count, 1)
-        let screenH = NSScreen.main?.visibleFrame.height ?? 900
-        let maxListHeight = screenH * maxScreenHeightFraction - outerPadding * 2
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let maxListHeight = screen.height * maxScreenHeightFraction - outerPadding * 2
+        let maxListWidth = screen.width * maxScreenWidthFraction - outerPadding * 2
 
-        let rowsPerCol = max(1, Int(floor(maxListHeight / rowH)))
-        let cols = max(1, Int(ceil(Double(count) / Double(rowsPerCol))))
+        let maxRowsByHeight = max(1, Int(floor(maxListHeight / rowH)))
+
+        // Minimum column width: still enough for letter + app name + icon + a
+        // bit of title before truncation. Scale with display.
+        let minColWidth: CGFloat = round(380 * metrics.scale)
+        let maxColsByWidth = max(1, Int(floor(maxListWidth / minColWidth)))
+
+        // Determine how many columns we need to fit `count` without exceeding
+        // screen height, then cap by how many narrow columns fit horizontally.
+        let neededCols = max(1, Int(ceil(Double(count) / Double(maxRowsByHeight))))
+        let cols = min(neededCols, maxColsByWidth)
+        let rowsPerCol = max(1, Int(ceil(Double(count) / Double(cols))))
         let effectiveRowsPerCol = cols == 1 ? count : rowsPerCol
+
+        // One column keeps full base width; multiple columns shrink to share
+        // the available width evenly, clamped to [minColWidth, baseRowW].
+        let rowW: CGFloat
+        if cols == 1 {
+            rowW = baseRowW
+        } else {
+            let divided = floor(maxListWidth / CGFloat(cols))
+            rowW = max(minColWidth, min(baseRowW, divided))
+        }
 
         let listWidth = CGFloat(cols) * rowW
         let listHeight = CGFloat(effectiveRowsPerCol) * rowH
@@ -245,14 +342,64 @@ final class SwitcherView: NSView {
             height: listHeight + outerPadding * 2
         )
 
-        let result = ListLayout(
+        return ListLayout(
             frames: frames,
             listSize: NSSize(width: listWidth, height: listHeight),
             total: total,
             rowsPerCol: effectiveRowsPerCol,
             cols: cols
         )
-        cachedLayout = result
-        return result
+    }
+
+    private func computeIconDockLayout() -> ListLayout {
+        let tile = metrics.tileSize
+        let gap = metrics.tileGap
+        let labelArea = metrics.tileLabelArea
+        let outerPadding = metrics.outerPadding
+        let count = max(rows.count, 1)
+
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let maxListWidth = screen.width * maxScreenWidthFraction - outerPadding * 2
+
+        // Each tile occupies (tile + gap), final tile has no trailing gap.
+        let perTileStride = tile + gap
+        let tilesPerRow = max(1, Int(floor((maxListWidth + gap) / perTileStride)))
+        let cols = min(count, tilesPerRow)
+        let rowsCount = max(1, Int(ceil(Double(count) / Double(cols))))
+
+        let itemH = tile + labelArea
+        let listWidth = CGFloat(cols) * tile + CGFloat(max(0, cols - 1)) * gap
+        let listHeight = CGFloat(rowsCount) * itemH + CGFloat(max(0, rowsCount - 1)) * gap
+
+        var frames: [NSRect] = []
+        frames.reserveCapacity(rows.count)
+
+        // Center each row's tiles horizontally within the list bounds — when the
+        // final row is partially filled it gets centered instead of pinning left.
+        for rowIdx in 0..<rowsCount {
+            let firstInRow = rowIdx * cols
+            let lastInRow = min(firstInRow + cols, rows.count) - 1
+            let tilesInRow = lastInRow - firstInRow + 1
+            let rowContentWidth = CGFloat(tilesInRow) * tile + CGFloat(max(0, tilesInRow - 1)) * gap
+            let rowStartX = (listWidth - rowContentWidth) / 2
+            let y = listHeight - CGFloat(rowIdx + 1) * itemH - CGFloat(rowIdx) * gap
+            for colIdx in 0..<tilesInRow {
+                let x = rowStartX + CGFloat(colIdx) * (tile + gap)
+                frames.append(NSRect(x: x, y: y, width: tile, height: itemH))
+            }
+        }
+
+        let total = NSSize(
+            width: listWidth + outerPadding * 2,
+            height: listHeight + outerPadding * 2
+        )
+
+        return ListLayout(
+            frames: frames,
+            listSize: NSSize(width: listWidth, height: listHeight),
+            total: total,
+            rowsPerCol: rowsCount,
+            cols: cols
+        )
     }
 }
