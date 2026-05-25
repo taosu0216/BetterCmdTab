@@ -20,6 +20,12 @@ final class SwitcherController: SwitcherViewDelegate {
     private var _phase: Phase = .idle
     private var primedApps: [NSRunningApplication] = []
     private var primedIndex: Int = 0
+    /// Canonical catalog set for the current reveal. `rows`/`labels` are the
+    /// *displayed* derivation (fuzzy-filtered or letter-prefix-reordered);
+    /// `baseRows`/`baseLabels` are the unfiltered source so the search query
+    /// can widen again on backspace. Kept in sync by every refresh path.
+    private var baseRows: [SwitcherRow] = []
+    private var baseLabels: [String] = []
     private var rows: [SwitcherRow] = []
     private var labels: [String] = []
     private var index: Int = 0
@@ -27,6 +33,15 @@ final class SwitcherController: SwitcherViewDelegate {
     private var currentMetrics: SwitcherMetrics = .baseline
     private var letterBuffer: String = ""
     private var letterBufferTimer: Timer?
+    /// Fuzzy-search mode (entered with `/`). While active, typed characters
+    /// build `searchQuery` and the displayed rows are filtered by fuzzy match
+    /// on app name + window title.
+    private var searchActive: Bool = false
+    private var searchQuery: String = ""
+    /// Set once the switcher has detached from the held modifier in
+    /// `.stayOpen` search mode: from then on, releasing ⌘ (or any other
+    /// modifier) no longer commits — only Return or a mouse click does.
+    private var stickyOpen: Bool = false
     private var windowsOnlyMode: Bool = false
     private var windowsOnlyPid: pid_t? = nil
     private var windowsOnlyPrimedDelta: Int = 0
@@ -105,30 +120,22 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     private func handleAppTerminated(pid: pid_t) {
-        guard phase == .visible, rows.contains(where: { $0.pid == pid }) else { return }
-        let selectedKey: (pid_t, String, Bool)? = rows.indices.contains(index)
-            ? (rows[index].pid, rows[index].windowTitle, rows[index].window != nil)
-            : nil
-        rows.removeAll { $0.pid == pid }
-        if rows.isEmpty {
+        guard phase == .visible, baseRows.contains(where: { $0.pid == pid }) else { return }
+        baseRows.removeAll { $0.pid == pid }
+        if baseRows.isEmpty {
             cancel()
             return
         }
-        labels = RowLabels.labels(for: rows)
-        if let key = selectedKey,
-           let restored = rows.firstIndex(where: { $0.pid == key.0 && $0.windowTitle == key.1 && ($0.window != nil) == key.2 }) {
-            index = restored
-        } else {
-            index = min(index, rows.count - 1)
-        }
-        applyPrefixReorder()
+        baseLabels = RowLabels.labels(for: baseRows)
+        refreshDisplay()
     }
 
     private func handleScreenParametersChange() {
-        guard phase == .visible, !rows.isEmpty else { return }
+        // `baseRows`, not `rows`: in fuzzy-search mode an empty filtered result
+        // is still a visible panel that must track screen changes.
+        guard phase == .visible, !baseRows.isEmpty else { return }
         currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale)
-        view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
-        panel.present()
+        refreshDisplay()
     }
 
     func start() {
@@ -264,10 +271,18 @@ final class SwitcherController: SwitcherViewDelegate {
             advanceHorizontal(by: 1)
         case .spatialLeft:
             advanceHorizontal(by: -1)
-        case .releaseCmd, .commit:
+        case .releaseCmd:
+            handleModifierRelease()
+        case .commit:
             commit()
         case .escape:
-            cancel()
+            if searchActive { exitSearch() } else { cancel() }
+        case .toggleSearch:
+            toggleSearch()
+        case .searchInput(let ch):
+            handleSearchInput(ch)
+        case .searchBackspace:
+            handleSearchBackspace()
         case .closeWindow:
             performCloseAction()
         case .minimizeWindow:
@@ -290,9 +305,7 @@ final class SwitcherController: SwitcherViewDelegate {
             let isPrefixOfLonger = labels.contains { $0 != attempt && $0.hasPrefix(attempt) }
             if isPrefixOfLonger {
                 letterBuffer = attempt
-                applyPrefixReorder()
-                index = 0
-                view.setSelectedIndex(index)
+                refreshDisplay(resetSelectionToTop: true)
                 scheduleLetterBufferReset()
                 return
             }
@@ -305,9 +318,7 @@ final class SwitcherController: SwitcherViewDelegate {
 
         if labels.contains(where: { $0.hasPrefix(attempt) }) {
             letterBuffer = attempt
-            applyPrefixReorder()
-            index = 0
-            view.setSelectedIndex(index)
+            refreshDisplay(resetSelectionToTop: true)
             scheduleLetterBufferReset()
             return
         }
@@ -317,9 +328,7 @@ final class SwitcherController: SwitcherViewDelegate {
             let isPrefixOfLonger = labels.contains { $0 != single && $0.hasPrefix(single) }
             if isPrefixOfLonger {
                 letterBuffer = single
-                applyPrefixReorder()
-                index = 0
-                view.setSelectedIndex(index)
+                refreshDisplay(resetSelectionToTop: true)
                 scheduleLetterBufferReset()
                 return
             }
@@ -331,14 +340,12 @@ final class SwitcherController: SwitcherViewDelegate {
         }
         if labels.contains(where: { $0.hasPrefix(single) }) {
             letterBuffer = single
-            applyPrefixReorder()
-            index = 0
-            view.setSelectedIndex(index)
+            refreshDisplay(resetSelectionToTop: true)
             scheduleLetterBufferReset()
             return
         }
         letterBuffer = ""
-        applyPrefixReorder()
+        refreshDisplay()
     }
 
     private func scheduleLetterBufferReset() {
@@ -358,7 +365,7 @@ final class SwitcherController: SwitcherViewDelegate {
         letterBufferTimer?.invalidate()
         letterBufferTimer = nil
         if hadPrefix, phase == .visible {
-            applyPrefixReorder()
+            refreshDisplay()
         }
     }
 
@@ -542,15 +549,17 @@ final class SwitcherController: SwitcherViewDelegate {
         let cachedRows = cache.rows(orderedBy: mru.order)
         let hadCachedRows = !cachedRows.isEmpty
         if hadCachedRows {
-            rows = cachedRows
-            labels = RowLabels.labels(for: rows)
+            baseRows = cachedRows
+            baseLabels = RowLabels.labels(for: baseRows)
+            rows = baseRows
+            labels = baseLabels
             if let pid = targetPid, let match = rows.firstIndex(where: { $0.pid == pid }) {
                 index = match
             } else {
                 index = 0
             }
         } else {
-            rows = snapshotApps.map { app in
+            baseRows = snapshotApps.map { app in
                 SwitcherRow(
                     app: app,
                     window: nil,
@@ -559,7 +568,9 @@ final class SwitcherController: SwitcherViewDelegate {
                     isPlaceholder: true
                 )
             }
-            labels = RowLabels.labels(for: rows)
+            baseLabels = RowLabels.labels(for: baseRows)
+            rows = baseRows
+            labels = baseLabels
             index = max(0, min(targetIdx, rows.count - 1))
         }
         guard !rows.isEmpty else { cancel(); return }
@@ -605,8 +616,10 @@ final class SwitcherController: SwitcherViewDelegate {
             return
         }
         filtered = windowMRU.sortRows(filtered, forPid: pid)
-        rows = filtered
-        labels = RowLabels.labels(for: rows)
+        baseRows = filtered
+        baseLabels = RowLabels.labels(for: baseRows)
+        rows = baseRows
+        labels = baseLabels
         let count = rows.count
         let delta = windowsOnlyPrimedDelta
         index = count > 0 ? ((delta % count) + count) % count : 0
@@ -628,35 +641,22 @@ final class SwitcherController: SwitcherViewDelegate {
         guard phase == .visible, windowsOnlyMode else { return }
         if fresh.isEmpty { cancel(); return }
         let sorted = windowsOnlyPid.map { windowMRU.sortRows(fresh, forPid: $0) } ?? fresh
-        rows = sorted
-        labels = RowLabels.labels(for: rows)
-        index = min(index, rows.count - 1)
-        applyPrefixReorder()
+        baseRows = sorted
+        baseLabels = RowLabels.labels(for: baseRows)
+        refreshDisplay()
     }
 
     private func applyFullSnapshot(_ fresh: [SwitcherRow], anchorPid: pid_t?) {
         guard phase == .visible else { return }
         if fresh.isEmpty { cancel(); return }
 
-        // Preserve the user's current selection (by identity) so a Tab press
-        // landing between reveal-from-cache and this background-refreshed apply
-        // isn't reverted to the originally-primed app. Fall back to anchorPid
-        // only if the current row can't be found in the fresh snapshot.
-        let currentKey: (pid_t, String, Bool)? = rows.indices.contains(index)
-            ? (rows[index].pid, rows[index].windowTitle, rows[index].window != nil)
-            : nil
-
-        rows = fresh
-        labels = RowLabels.labels(for: rows)
-        if let key = currentKey,
-           let restored = rows.firstIndex(where: { $0.pid == key.0 && $0.windowTitle == key.1 && ($0.window != nil) == key.2 }) {
-            index = restored
-        } else if let pid = anchorPid, let match = rows.firstIndex(where: { $0.pid == pid }) {
-            index = match
-        } else {
-            index = min(index, rows.count - 1)
-        }
-        applyPrefixReorder()
+        // `refreshDisplay` preserves the user's current selection by identity so
+        // a Tab press landing between reveal-from-cache and this
+        // background-refreshed apply isn't reverted to the originally-primed
+        // app, falling back to `anchorPid` only if the row is gone.
+        baseRows = fresh
+        baseLabels = RowLabels.labels(for: baseRows)
+        refreshDisplay(anchorPid: anchorPid)
     }
 
     /// Select the window-switch target for a fast Cmd+` chord that commits
@@ -718,11 +718,14 @@ final class SwitcherController: SwitcherViewDelegate {
         panel.dismiss()
         primedApps = []
         rows = []
+        baseRows = []
+        baseLabels = []
         windowsOnlyMode = false
         windowsOnlyPid = nil
         windowsOnlyPrimedDelta = 0
         closedTombstones.removeAll()
         resetLetterBuffer()
+        resetSearch()
         pendingActivation?()
     }
 
@@ -735,11 +738,14 @@ final class SwitcherController: SwitcherViewDelegate {
         panel.dismiss()
         primedApps = []
         rows = []
+        baseRows = []
+        baseLabels = []
         windowsOnlyMode = false
         windowsOnlyPid = nil
         windowsOnlyPrimedDelta = 0
         closedTombstones.removeAll()
         resetLetterBuffer()
+        resetSearch()
     }
 
     private func performOnVisibleTarget(_ action: (SwitcherRow) -> Void) {
@@ -763,7 +769,19 @@ final class SwitcherController: SwitcherViewDelegate {
 
         let closedApp = row.app
         let closedPid = row.pid
-        rows.remove(at: index)
+        // Remove the exact closed window from the canonical set. Match the AX
+        // element identity first (CFEqual) so an app with several same-titled
+        // (or untitled) windows drops the right row; fall back to the
+        // pid+title+hasWindow key only when there's no window ref.
+        let removeIdx: Int?
+        if let win = row.window {
+            removeIdx = baseRows.firstIndex { $0.window.map { CFEqual($0, win) } ?? false }
+        } else {
+            removeIdx = baseRows.firstIndex { keyMatches($0, (row.pid, row.windowTitle, false)) }
+        }
+        if let bi = removeIdx {
+            baseRows.remove(at: bi)
+        }
 
         // If this was the only window for a regular app, demote the app to a
         // windowless row at the end of the list right now. Otherwise the app
@@ -771,8 +789,8 @@ final class SwitcherController: SwitcherViewDelegate {
         // filter substitute one) — closing the window shouldn't make the app
         // flicker out of the switcher.
         if closedApp.activationPolicy == .regular,
-           !rows.contains(where: { $0.pid == closedPid }) {
-            rows.append(SwitcherRow(
+           !baseRows.contains(where: { $0.pid == closedPid }) {
+            baseRows.append(SwitcherRow(
                 app: closedApp,
                 window: nil,
                 windowTitle: "",
@@ -780,13 +798,12 @@ final class SwitcherController: SwitcherViewDelegate {
             ))
         }
 
-        if rows.isEmpty {
+        if baseRows.isEmpty {
             cancel()
             return
         }
-        labels = RowLabels.labels(for: rows)
-        index = min(index, rows.count - 1)
-        applyPrefixReorder()
+        baseLabels = RowLabels.labels(for: baseRows)
+        refreshDisplay()
 
         scheduleVisibleRefresh(after: 0.25)
     }
@@ -809,23 +826,15 @@ final class SwitcherController: SwitcherViewDelegate {
                     self.cancel()
                     return
                 }
-                // Preserve selection by row identity (pid + title + hasWindow).
-                // Plain index clamping silently shifts the highlight onto a
-                // different window when the fresh snapshot reorders rows (MRU
-                // bump after close changing focus is the common trigger), which
-                // makes the next close action hit the wrong window.
-                let currentKey: (pid_t, String, Bool)? = self.rows.indices.contains(self.index)
-                    ? (self.rows[self.index].pid, self.rows[self.index].windowTitle, self.rows[self.index].window != nil)
-                    : nil
-                self.rows = fresh
-                self.labels = RowLabels.labels(for: fresh)
-                if let key = currentKey,
-                   let restored = fresh.firstIndex(where: { $0.pid == key.0 && $0.windowTitle == key.1 && ($0.window != nil) == key.2 }) {
-                    self.index = restored
-                } else {
-                    self.index = min(self.index, fresh.count - 1)
-                }
-                self.applyPrefixReorder()
+                // `refreshDisplay` preserves selection by row identity (pid +
+                // title + hasWindow). Plain index clamping silently shifts the
+                // highlight onto a different window when the fresh snapshot
+                // reorders rows (MRU bump after close changing focus is the
+                // common trigger), making the next close action hit the wrong
+                // window.
+                self.baseRows = fresh
+                self.baseLabels = RowLabels.labels(for: fresh)
+                self.refreshDisplay()
             }
         }
         if delay > 0 {
@@ -918,53 +927,131 @@ final class SwitcherController: SwitcherViewDelegate {
         return result
     }
 
-    private func applyPrefixReorder() {
-        guard phase == .visible else { return }
-        let prefix = letterBuffer
-        if prefix.isEmpty {
-            view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: "")
-            panel.present()
-            return
-        }
-
-        let n = rows.count
-        let selectedKey: (pid_t, String, Bool)? = rows.indices.contains(index)
+    private func selectionKey() -> (pid_t, String, Bool)? {
+        rows.indices.contains(index)
             ? (rows[index].pid, rows[index].windowTitle, rows[index].window != nil)
             : nil
+    }
 
-        // Single pass: collect match indices, then non-match indices. One array.
-        var orderIdx: [Int] = []
-        orderIdx.reserveCapacity(n)
-        var matchCount = 0
-        for i in 0..<n {
-            if labels[i].hasPrefix(prefix) {
-                orderIdx.append(i)
-                matchCount += 1
+    private func keyMatches(_ row: SwitcherRow, _ key: (pid_t, String, Bool)) -> Bool {
+        row.pid == key.0 && row.windowTitle == key.1 && (row.window != nil) == key.2
+    }
+
+    /// Single funnel that derives the displayed `rows`/`labels` from the
+    /// canonical `baseRows`, honoring the active mode: fuzzy-search filter,
+    /// letter-prefix reorder, or plain pass-through. Selection is restored by
+    /// identity (then `anchorPid`, then clamped), and the result is pushed to
+    /// the panel. Replaces the old `applyPrefixReorder`.
+    private func refreshDisplay(resetSelectionToTop: Bool = false, anchorPid: pid_t? = nil) {
+        guard phase == .visible else { return }
+        let key = resetSelectionToTop ? nil : selectionKey()
+
+        if searchActive, !searchQuery.isEmpty {
+            var newRows: [SwitcherRow] = []
+            var newLabels: [String] = []
+            newRows.reserveCapacity(baseRows.count)
+            for i in baseRows.indices
+            where FuzzyMatch.matches(query: searchQuery, appName: baseRows[i].appName, windowTitle: baseRows[i].windowTitle) {
+                newRows.append(baseRows[i])
+                newLabels.append(baseLabels[i])
             }
-        }
-        for i in 0..<n where !labels[i].hasPrefix(prefix) {
-            orderIdx.append(i)
-        }
-
-        var newRows: [SwitcherRow] = []
-        newRows.reserveCapacity(n)
-        var newLabels: [String] = []
-        newLabels.reserveCapacity(n)
-        for i in orderIdx {
-            newRows.append(rows[i])
-            newLabels.append(labels[i])
-        }
-        rows = newRows
-        labels = newLabels
-
-        if let key = selectedKey, let restored = rows.firstIndex(where: { $0.pid == key.0 && $0.windowTitle == key.1 && ($0.window != nil) == key.2 }) {
-            index = restored
-        } else if matchCount > 0 {
-            index = 0
+            rows = newRows
+            labels = newLabels
+        } else if !letterBuffer.isEmpty {
+            let prefix = letterBuffer
+            var orderIdx: [Int] = []
+            orderIdx.reserveCapacity(baseRows.count)
+            for i in baseRows.indices where baseLabels[i].hasPrefix(prefix) { orderIdx.append(i) }
+            for i in baseRows.indices where !baseLabels[i].hasPrefix(prefix) { orderIdx.append(i) }
+            rows = orderIdx.map { baseRows[$0] }
+            labels = orderIdx.map { baseLabels[$0] }
         } else {
-            index = min(index, rows.count - 1)
+            rows = baseRows
+            labels = baseLabels
         }
-        view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: prefix)
+
+        if resetSelectionToTop {
+            index = 0
+        } else if let key, let restored = rows.firstIndex(where: { keyMatches($0, key) }) {
+            index = restored
+        } else if let anchorPid, let match = rows.firstIndex(where: { $0.pid == anchorPid }) {
+            index = match
+        } else {
+            index = rows.isEmpty ? 0 : max(0, min(index, rows.count - 1))
+        }
+
+        view.configure(
+            rows: rows,
+            labels: labels,
+            selectedIndex: index,
+            metrics: currentMetrics,
+            highlightPrefix: searchActive ? "" : letterBuffer,
+            searchActive: searchActive,
+            searchQuery: searchQuery
+        )
         panel.present()
+    }
+
+    // MARK: - Fuzzy search
+
+    private func toggleSearch() {
+        if searchActive { exitSearch() } else { enterSearch() }
+    }
+
+    private func enterSearch() {
+        guard phase == .visible, Preferences.shared.fuzzySearchEnabled, !searchActive else { return }
+        // Drop any in-flight letter prefix without re-rendering — we re-render
+        // immediately below as the search view.
+        letterBufferTimer?.invalidate()
+        letterBufferTimer = nil
+        letterBuffer = ""
+        searchActive = true
+        searchQuery = ""
+        hotkey.setSearchMode(true)
+        refreshDisplay()
+    }
+
+    private func exitSearch() {
+        guard searchActive else { return }
+        searchActive = false
+        searchQuery = ""
+        hotkey.setSearchMode(false)
+        refreshDisplay()
+    }
+
+    private func handleSearchInput(_ ch: Character) {
+        guard searchActive else { return }
+        searchQuery.append(ch)
+        refreshDisplay(resetSelectionToTop: true)
+    }
+
+    private func handleSearchBackspace() {
+        guard searchActive else { return }
+        if searchQuery.isEmpty {
+            exitSearch()
+            return
+        }
+        searchQuery.removeLast()
+        refreshDisplay(resetSelectionToTop: true)
+    }
+
+    private func resetSearch() {
+        searchActive = false
+        searchQuery = ""
+        stickyOpen = false
+        hotkey.setSearchMode(false)
+    }
+
+    /// ⌘ (or another hold modifier) was released. Normally that commits the
+    /// current selection. In `.stayOpen` search mode the first release instead
+    /// detaches the switcher so it persists until Return / mouse selection;
+    /// once detached, further modifier releases are ignored.
+    private func handleModifierRelease() {
+        if stickyOpen { return }
+        if searchActive, Preferences.shared.searchDismissMode == .stayOpen {
+            stickyOpen = true
+            return
+        }
+        commit()
     }
 }

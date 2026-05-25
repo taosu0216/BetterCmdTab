@@ -20,6 +20,9 @@ final class HotkeyTap {
         case hideApp
         case quitApp
         case letterInput(Character)
+        case toggleSearch
+        case searchInput(Character)
+        case searchBackspace
     }
 
     var onEvent: (Event) -> Void = { _ in }
@@ -61,6 +64,10 @@ final class HotkeyTap {
     /// capturing — required because system-reserved chords like ⌘Tab never reach
     /// an in-app NSEvent monitor, so the recorder must be fed from the tap.
     private let recordingFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// When true the switcher is in fuzzy-search mode: printable keys (incl.
+    /// space and the w/m/h/q action letters) become query text and Delete
+    /// becomes backspace, instead of driving navigation/actions.
+    private let searchModeFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
     private let config = OSAllocatedUnfairLock<Config>(
         initialState: Config(appModifier: .maskCommand, appKey: 48, windowModifier: .maskCommand, windowKey: 50)
     )
@@ -73,6 +80,8 @@ final class HotkeyTap {
     private static let returnKey: Int64 = 36
     private static let keypadEnterKey: Int64 = 76
     private static let spaceKey: Int64 = 49
+    private static let deleteKey: Int64 = 51
+    private static let slashKey: Int64 = 44
     private static let wKey: Int64 = 13
     private static let mKey: Int64 = 46
     private static let hKey: Int64 = 4
@@ -183,6 +192,12 @@ final class HotkeyTap {
         recordingFlag.withLock { $0 = value }
     }
 
+    /// Enter/leave fuzzy-search mode. Read by the tap callback to reroute
+    /// printable keystrokes into the search query.
+    func setSearchMode(_ value: Bool) {
+        searchModeFlag.withLock { $0 = value }
+    }
+
     /// Apply user-chosen modifiers + trigger keys. Safe to call any time; the
     /// tap callback reads the new value on its next event.
     func updateConfig(_ newConfig: Config) {
@@ -191,6 +206,10 @@ final class HotkeyTap {
 
     private func isSwitchingNow() -> Bool {
         switchingFlag.withLock { $0 }
+    }
+
+    private func isSearchingNow() -> Bool {
+        searchModeFlag.withLock { $0 }
     }
 
     private func loadKeyboardLayout() {
@@ -279,39 +298,73 @@ final class HotkeyTap {
             }
 
             if isSwitchingNow() {
-                switch keyCode {
-                case Self.leftArrow:
-                    deliver(.spatialLeft); return nil
-                case Self.rightArrow:
-                    deliver(.spatialRight); return nil
-                case Self.upArrow:
-                    deliver(.prevRow); return nil
-                case Self.downArrow:
-                    deliver(.nextRow); return nil
-                case Self.returnKey, Self.keypadEnterKey, Self.spaceKey:
-                    deliver(.commit); return nil
-                case Self.escKey:
-                    deliver(.escape); return nil
-                case Self.wKey:
-                    deliver(.closeWindow); return nil
-                case Self.mKey:
-                    deliver(.minimizeWindow); return nil
-                case Self.hKey:
-                    deliver(.hideApp); return nil
-                case Self.qKey:
-                    deliver(.quitApp); return nil
-                default:
-                    if let letter = translate(keyCode: UInt16(keyCode)) {
-                        let lower = Character(letter.lowercased())
-                        if lower.isLetter,
-                           let ascii = lower.asciiValue,
-                           ascii >= 0x61 && ascii <= 0x7A,
-                           !Self.reservedLetters.contains(lower) {
-                            deliver(.letterInput(lower))
+                if isSearchingNow() {
+                    // Navigation/commit/escape still work; everything printable
+                    // (incl. space and w/m/h/q) feeds the query, Delete is
+                    // backspace, and `/` toggles search back off.
+                    switch keyCode {
+                    case Self.leftArrow:
+                        deliver(.spatialLeft); return nil
+                    case Self.rightArrow:
+                        deliver(.spatialRight); return nil
+                    case Self.upArrow:
+                        deliver(.prevRow); return nil
+                    case Self.downArrow:
+                        deliver(.nextRow); return nil
+                    case Self.returnKey, Self.keypadEnterKey:
+                        deliver(.commit); return nil
+                    case Self.escKey:
+                        deliver(.escape); return nil
+                    case Self.deleteKey:
+                        deliver(.searchBackspace); return nil
+                    case Self.slashKey:
+                        deliver(.toggleSearch); return nil
+                    default:
+                        if let ch = translate(keyCode: UInt16(keyCode)),
+                           let scalar = ch.unicodeScalars.first,
+                           scalar.value >= 0x20, scalar.value != 0x7F {
+                            deliver(.searchInput(ch))
                             return nil
                         }
+                        break
                     }
-                    break
+                } else {
+                    switch keyCode {
+                    case Self.leftArrow:
+                        deliver(.spatialLeft); return nil
+                    case Self.rightArrow:
+                        deliver(.spatialRight); return nil
+                    case Self.upArrow:
+                        deliver(.prevRow); return nil
+                    case Self.downArrow:
+                        deliver(.nextRow); return nil
+                    case Self.returnKey, Self.keypadEnterKey, Self.spaceKey:
+                        deliver(.commit); return nil
+                    case Self.escKey:
+                        deliver(.escape); return nil
+                    case Self.slashKey:
+                        deliver(.toggleSearch); return nil
+                    case Self.wKey:
+                        deliver(.closeWindow); return nil
+                    case Self.mKey:
+                        deliver(.minimizeWindow); return nil
+                    case Self.hKey:
+                        deliver(.hideApp); return nil
+                    case Self.qKey:
+                        deliver(.quitApp); return nil
+                    default:
+                        if let letter = translate(keyCode: UInt16(keyCode)) {
+                            let lower = Character(letter.lowercased())
+                            if lower.isLetter,
+                               let ascii = lower.asciiValue,
+                               ascii >= 0x61 && ascii <= 0x7A,
+                               !Self.reservedLetters.contains(lower) {
+                                deliver(.letterInput(lower))
+                                return nil
+                            }
+                        }
+                        break
+                    }
                 }
             }
         } else if type == .flagsChanged {

@@ -14,6 +14,8 @@ final class SwitcherView: NSView {
     private let glassBackdrop: NSView
     private let contentContainer = NSView()
     private let listContainer = NSView()
+    private let searchBar = SwitcherSearchBarView()
+    private let noResultsLabel = NSTextField(labelWithString: "No matches")
     private var itemViews: [SwitcherItemViewProtocol] = []
     private var rows: [SwitcherRow] = []
     private(set) var labels: [String] = []
@@ -55,19 +57,31 @@ final class SwitcherView: NSView {
             glassBackdrop.addSubview(contentContainer)
         }
         contentContainer.addSubview(listContainer)
+        searchBar.isHidden = true
+        contentContainer.addSubview(searchBar)
+        noResultsLabel.isHidden = true
+        noResultsLabel.alignment = .center
+        noResultsLabel.textColor = .secondaryLabelColor
+        noResultsLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        contentContainer.addSubview(noResultsLabel)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     private var highlightPrefix: String = ""
+    private var searchActive: Bool = false
 
-    func configure(rows: [SwitcherRow], labels: [String], selectedIndex: Int, metrics: SwitcherMetrics, highlightPrefix: String = "") {
+    func configure(rows: [SwitcherRow], labels: [String], selectedIndex: Int, metrics: SwitcherMetrics, highlightPrefix: String = "", searchActive: Bool = false, searchQuery: String = "") {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         self.rows = rows
         self.labels = labels
         self.highlightPrefix = highlightPrefix
+        self.searchActive = searchActive
         self.selectedIndex = selectedIndex
+        searchBar.update(query: searchQuery)
+        searchBar.isHidden = !searchActive
+        noResultsLabel.isHidden = !(searchActive && rows.isEmpty)
         let layoutModeChanged = metrics.layoutMode != self.metrics.layoutMode
         if metrics != self.metrics {
             self.metrics = metrics
@@ -233,7 +247,9 @@ final class SwitcherView: NSView {
             v.removeFromSuperview()
         }
         for (i, row) in rows.enumerated() {
-            let label = i < labels.count ? labels[i] : ""
+            // Quick-jump labels are inert in search mode (typing builds the
+            // query, not a label jump), so suppress them to avoid confusion.
+            let label = searchActive ? "" : (i < labels.count ? labels[i] : "")
             let highlightLen = (!highlightPrefix.isEmpty && label.hasPrefix(highlightPrefix)) ? highlightPrefix.count : 0
             itemViews[i].configure(
                 with: row,
@@ -246,8 +262,17 @@ final class SwitcherView: NSView {
         }
     }
 
+    /// Search-bar height for the current scale (0 when search is inactive).
+    private var searchBarHeight: CGFloat { round(30 * metrics.scale) }
+    /// Vertical strip reserved above the list for the search bar plus a gap.
+    private var reservedSearchHeight: CGFloat {
+        searchActive ? searchBarHeight + metrics.outerPadding : 0
+    }
+
     override var intrinsicContentSize: NSSize {
-        computeLayout().total
+        var size = computeLayout().total
+        size.height += reservedSearchHeight
+        return size
     }
 
     override func layout() {
@@ -258,11 +283,25 @@ final class SwitcherView: NSView {
         let contentSize = NSSize(width: bounds.width, height: bounds.height)
         contentContainer.frame = NSRect(origin: .zero, size: contentSize)
 
+        let outer = metrics.outerPadding
+        if searchActive {
+            searchBar.frame = NSRect(
+                x: outer,
+                y: bounds.height - outer - searchBarHeight,
+                width: max(0, bounds.width - outer * 2),
+                height: searchBarHeight
+            )
+        }
+
+        // List occupies the region below the reserved search strip; center it
+        // there so the layout matches the non-search case when inactive.
+        let listAreaHeight = bounds.height - reservedSearchHeight
         let listOrigin = NSPoint(
             x: (bounds.width - info.listSize.width) / 2,
-            y: (bounds.height - info.listSize.height) / 2
+            y: (listAreaHeight - info.listSize.height) / 2
         )
         listContainer.frame = NSRect(origin: listOrigin, size: info.listSize)
+        noResultsLabel.frame = NSRect(x: 0, y: 0, width: bounds.width, height: listAreaHeight)
 
         for (i, rect) in info.frames.enumerated() where i < itemViews.count {
             itemViews[i].frame = rect
@@ -307,7 +346,10 @@ final class SwitcherView: NSView {
         let outerPadding = metrics.outerPadding
         let count = max(rows.count, 1)
         let screen = layoutScreenFrame()
-        let maxListHeight = screen.height * maxScreenHeightFraction - outerPadding * 2
+        // Reserve room for the search bar so an at-cap list + search strip
+        // doesn't push the panel past the visible frame (present() centers
+        // without clamping).
+        let maxListHeight = screen.height * maxScreenHeightFraction - outerPadding * 2 - reservedSearchHeight
         let maxListWidth = screen.width * maxScreenWidthFraction - outerPadding * 2
 
         let maxRowsByHeight = max(1, Int(floor(maxListHeight / rowH)))
@@ -414,5 +456,73 @@ final class SwitcherView: NSView {
             rowsPerCol: rowsCount,
             cols: cols
         )
+    }
+}
+
+/// Display-only search bar shown at the top of the panel in fuzzy-search mode.
+/// Keystrokes are captured by the global event tap (not a real text field), so
+/// this view only renders the current query text.
+@MainActor
+private final class SwitcherSearchBarView: NSView {
+    private let icon = NSImageView()
+    private let field = NSTextField(labelWithString: "")
+    private let placeholder = "Type to filter apps & windows…"
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+
+        icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+        icon.symbolConfiguration = .init(pointSize: 13, weight: .semibold)
+        icon.contentTintColor = .secondaryLabelColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        field.font = .systemFont(ofSize: 14, weight: .medium)
+        field.lineBreakMode = .byTruncatingTail
+        field.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(icon)
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            field.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        update(query: "")
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
+        updateAppearance()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
+    func update(query: String) {
+        if query.isEmpty {
+            field.stringValue = placeholder
+            field.textColor = .tertiaryLabelColor
+        } else {
+            field.stringValue = query
+            field.textColor = .labelColor
+        }
+    }
+
+    private func updateAppearance() {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let base = dark ? NSColor.white : NSColor.black
+        layer?.backgroundColor = base.withAlphaComponent(dark ? 0.10 : 0.06).cgColor
+        layer?.borderWidth = 0.5
+        layer?.borderColor = base.withAlphaComponent(dark ? 0.12 : 0.08).cgColor
     }
 }
