@@ -489,12 +489,18 @@ private final class SwitcherSearchBarView: NSView {
 
         addSubview(icon)
         addSubview(field)
+        // The bar itself is positioned by manual frame layout (see SwitcherView.layout),
+        // so its autoresizing mask yields a `width == 0` constraint while it is hidden /
+        // before first sizing. Keep the trailing inset non-required so it breaks cleanly
+        // at that transient zero width instead of logging an unsatisfiable-constraint error.
+        let fieldTrailing = field.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12)
+        fieldTrailing.priority = .defaultHigh
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 16),
             field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            field.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            fieldTrailing,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         update(query: "")
