@@ -5,6 +5,7 @@ import Combine
 final class GeneralSettingsViewController: NSViewController {
 
     private let launchSwitch = NSSwitch()
+    private let hideMenuBarSwitch = NSSwitch()
     private let accessibilityRow = SettingsRowView(
         title: "Accessibility access",
         description: "Required to intercept the switcher shortcut and read your open windows."
@@ -53,6 +54,13 @@ final class GeneralSettingsViewController: NSViewController {
         launchSwitch.target = self
         launchSwitch.action = #selector(toggleLaunchAtLogin(_:))
         behavior.addContent(launchRow)
+
+        configureSwitch(hideMenuBarSwitch, action: #selector(toggleHideMenuBarIcon(_:)))
+        behavior.addContent(SettingsRowView(
+            title: "Hide menu bar icon",
+            subtitle: "Removes the ⌘ icon from the menu bar. Launch BetterCmdTab again (e.g. from Spotlight) to reopen this window.",
+            accessory: hideMenuBarSwitch
+        ))
 
         configureSwitch(hapticSwitch, action: #selector(toggleHaptic(_:)))
         behavior.addContent(SettingsRowView(
@@ -231,6 +239,7 @@ final class GeneralSettingsViewController: NSViewController {
         recentlyClosedSwitch.state = prefs.showRecentlyClosed ? .on : .off
         selectRecentlyClosedLimit(prefs.recentlyClosedLimit)
         recentlyClosedLimitPopup.isEnabled = prefs.showRecentlyClosed
+        hideMenuBarSwitch.state = prefs.hideMenuBarIcon ? .on : .off
         hapticSwitch.state = prefs.hapticOnCommit ? .on : .off
         soundSwitch.state = prefs.soundOnCommit ? .on : .off
         swipeSwitch.state = prefs.experimentalSwipeTrigger ? .on : .off
@@ -330,6 +339,10 @@ final class GeneralSettingsViewController: NSViewController {
         } else if let nearest = recentlyClosedLimits.enumerated().min(by: { abs($0.element - value) < abs($1.element - value) }) {
             recentlyClosedLimitPopup.selectItem(at: nearest.offset)
         }
+    }
+
+    @objc private func toggleHideMenuBarIcon(_ sender: NSSwitch) {
+        Preferences.shared.hideMenuBarIcon = (sender.state == .on)
     }
 
     @objc private func toggleHaptic(_ sender: NSSwitch) {

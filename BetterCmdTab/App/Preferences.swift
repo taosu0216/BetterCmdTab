@@ -133,6 +133,7 @@ final class Preferences: ObservableObject {
         static let hapticOnCommit = "Switcher.hapticOnCommit"
         static let soundOnCommit = "Switcher.soundOnCommit"
         static let accentChoice = "Switcher.accentChoice"
+        static let hideMenuBarIcon = "Switcher.hideMenuBarIcon"
         static let experimentalSwipeTrigger = "Switcher.experimentalSwipeTrigger"
         static let experimentalUnreadBadges = "Switcher.experimentalUnreadBadges"
     }
@@ -281,6 +282,16 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Hide the menu bar (status) icon. With it hidden there's no in-menu way
+    /// to reach Settings, so `AppDelegate` reopens this window when the app is
+    /// launched again (e.g. from Spotlight). Default off.
+    @Published var hideMenuBarIcon: Bool {
+        didSet {
+            guard oldValue != hideMenuBarIcon else { return }
+            UserDefaults.standard.set(hideMenuBarIcon, forKey: Keys.hideMenuBarIcon)
+        }
+    }
+
     /// Experimental: open the switcher with a horizontal three-finger trackpad
     /// swipe. Relies on global swipe events the system may also consume, so it's
     /// best-effort and off by default. [[experimental-features]]
@@ -337,6 +348,8 @@ final class Preferences: ObservableObject {
 
         let accentRaw = defaults.string(forKey: Keys.accentChoice)
         self.accentChoice = accentRaw.flatMap(SwitcherAccent.init(rawValue:)) ?? .system
+
+        self.hideMenuBarIcon = defaults.object(forKey: Keys.hideMenuBarIcon) as? Bool ?? false
 
         self.experimentalSwipeTrigger = defaults.object(forKey: Keys.experimentalSwipeTrigger) as? Bool ?? false
         self.experimentalUnreadBadges = defaults.object(forKey: Keys.experimentalUnreadBadges) as? Bool ?? false

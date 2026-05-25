@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import os
 
 @main
@@ -7,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: SwitcherController?
     private var statusItem: NSStatusItem?
     private var axWaiter: AccessibilityWaiter?
+    private var cancellables = Set<AnyCancellable>()
 
     static func main() {
         let app = NSApplication.shared
@@ -21,7 +23,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        installStatusItem()
+        updateStatusItem()
+        Preferences.shared.$hideMenuBarIcon
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateStatusItem() }
+            .store(in: &cancellables)
+
+        // With the menu bar icon hidden there's no in-menu way to reach
+        // Settings, so a manual launch (Spotlight/Finder) surfaces it. Skip
+        // the automatic login launch, which would otherwise pop Settings on
+        // every login; that case is handled by `applicationShouldHandleReopen`
+        // when the user launches the already-running app again.
+        LaunchAtLogin.shared.refresh()
+        if Preferences.shared.hideMenuBarIcon && !LaunchAtLogin.shared.isEnabled {
+            SettingsWindowPresenter.shared.show()
+        }
 
         let missing = PrivateAPI.selfCheck()
         if !missing.isEmpty {
@@ -53,6 +69,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let c = SwitcherController()
         c.start()
         controller = c
+    }
+
+    /// Adds or removes the status item to match `hideMenuBarIcon`. Safe to call
+    /// repeatedly — it only acts when the current state differs.
+    private func updateStatusItem() {
+        if Preferences.shared.hideMenuBarIcon {
+            if let item = statusItem {
+                NSStatusBar.system.removeStatusItem(item)
+                statusItem = nil
+            }
+            return
+        }
+        guard statusItem == nil else { return }
+        installStatusItem()
     }
 
     private func installStatusItem() {
@@ -90,5 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Fired when the user launches the already-running app again (e.g. from
+    /// Spotlight). The app is accessory with no dock icon, so reopening surfaces
+    /// Settings — the only entry point when the menu bar icon is hidden.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        SettingsWindowPresenter.shared.show()
+        return true
     }
 }
