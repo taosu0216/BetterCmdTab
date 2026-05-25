@@ -849,6 +849,10 @@ final class SwitcherController: SwitcherViewDelegate {
         // Close only applies to a real window of a running app — launchable
         // search rows have nothing to close.
         guard let closedApp = row.app, let closedPid = row.pid else { return }
+        // A windowless row has nothing to close. Falling through would pointlessly
+        // re-demote the app, flashing its "no window" glyph off (re-inserted
+        // suppressed) and back on (the grace reveal) — a visible blink.
+        guard row.window != nil else { return }
 
         // Closing a single window is intentionally NOT recorded for "recently
         // closed": that history is app-level only (an app being quit), captured
@@ -912,7 +916,42 @@ final class SwitcherController: SwitcherViewDelegate {
         baseLabels = RowLabels.labels(for: baseRows)
         refreshDisplay()
 
+        // Reveal the "no window" glyph on the row we just demoted, after a short
+        // grace, so it appears near-instantly instead of waiting on the 250ms
+        // refresh below (which rebuilds from the AX cache — a path that lags for
+        // the *last*-window close, where the window-destroyed notification often
+        // never fires).
+        revealNoWindowGlyphAfterGrace(pid: closedPid)
         scheduleVisibleRefresh(after: 0.25)
+    }
+
+    /// Flip the suppressed "no window" glyph on after a short, fixed grace. The
+    /// optimistic row from `performCloseAction` hides the glyph because the app
+    /// might hide itself instead of going windowless (Electron apps do) and we
+    /// don't want a no-window→hidden flash. The grace is long enough for such an
+    /// app to fire its hide — `isHidden` then goes true and the view paints the
+    /// hidden glyph, so we leave the suppression alone — and short enough that
+    /// the common case (app simply goes windowless) feels immediate. Purely
+    /// time-based: doesn't wait on the AX cache to re-report the window count,
+    /// which is the slow path.
+    private func revealNoWindowGlyphAfterGrace(pid: pid_t) {
+        let gen = revealGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
+            guard let i = self.baseRows.firstIndex(where: {
+                $0.pid == pid && $0.window == nil && $0.suppressNoWindowGlyph
+            }), let app = self.baseRows[i].app else { return }
+            // App hid itself on close — keep suppressing so the hidden glyph
+            // (painted live from `isHidden`) shows instead, with no flash.
+            if app.isHidden { return }
+            self.baseRows[i] = SwitcherRow(
+                app: app,
+                window: nil,
+                windowTitle: "",
+                isMinimized: false
+            )
+            self.refreshDisplay()
+        }
     }
 
     /// Refresh visible rows from the AX cache after a window action. The
