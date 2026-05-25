@@ -13,6 +13,10 @@ final class GeneralSettingsViewController: NSViewController {
     private let permissionButton = NSButton(title: "", target: nil, action: nil)
 
     private let betaSwitch = NSSwitch()
+    private let hapticSwitch = NSSwitch()
+    private let soundSwitch = NSSwitch()
+    private let swipeSwitch = NSSwitch()
+    private let badgesSwitch = NSSwitch()
     private let appRecorder = KeyboardShortcuts.RecorderCocoa(for: .switchApps)
     private let windowRecorder = KeyboardShortcuts.RecorderCocoa(for: .switchWindows)
 
@@ -20,6 +24,10 @@ final class GeneralSettingsViewController: NSViewController {
     private let hiddenSwitch = NSSwitch()
     private let windowlessSwitch = NSSwitch()
     private let fuzzySwitch = NSSwitch()
+    private let launcherSwitch = NSSwitch()
+    private let recentlyClosedSwitch = NSSwitch()
+    private let recentlyClosedLimitPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let recentlyClosedLimits: [Int] = [3, 5, 10, 15, 20]
     private let searchModePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let searchDismissModes: [SearchDismissMode] = SearchDismissMode.allCases
     private let excludedButton = NSButton(title: "Manage apps", target: nil, action: nil)
@@ -45,6 +53,19 @@ final class GeneralSettingsViewController: NSViewController {
         launchSwitch.target = self
         launchSwitch.action = #selector(toggleLaunchAtLogin(_:))
         behavior.addContent(launchRow)
+
+        configureSwitch(hapticSwitch, action: #selector(toggleHaptic(_:)))
+        behavior.addContent(SettingsRowView(
+            title: "Haptic feedback on switch",
+            subtitle: "A subtle tap when you commit a selection. Force Touch trackpads only.",
+            accessory: hapticSwitch
+        ))
+        configureSwitch(soundSwitch, action: #selector(toggleSound(_:)))
+        behavior.addContent(SettingsRowView(
+            title: "Sound on switch",
+            subtitle: "Play a soft click when you commit a selection.",
+            accessory: soundSwitch
+        ))
 
         // Shortcut section — native KeyboardShortcuts recorders. The trigger must
         // include a hold modifier (Command/Option/Control); Shift is reserved for
@@ -76,6 +97,31 @@ final class GeneralSettingsViewController: NSViewController {
             title: "Type-to-filter search",
             subtitle: "Press / while the switcher is open to filter by app name or window title.",
             accessory: fuzzySwitch
+        ))
+        configureSwitch(launcherSwitch, action: #selector(toggleLauncher(_:)))
+        contents.addContent(SettingsRowView(
+            title: "Launch apps from search",
+            subtitle: "While searching, also list matching apps that aren't running yet so you can launch them.",
+            accessory: launcherSwitch
+        ))
+        configureSwitch(recentlyClosedSwitch, action: #selector(toggleRecentlyClosed(_:)))
+        contents.addContent(SettingsRowView(
+            title: "Show recently closed apps",
+            subtitle: "List apps and windows you recently closed at the end of the switcher (and when searching) so you can reopen them.",
+            accessory: recentlyClosedSwitch
+        ))
+
+        recentlyClosedLimitPopup.controlSize = .small
+        recentlyClosedLimitPopup.translatesAutoresizingMaskIntoConstraints = false
+        recentlyClosedLimitPopup.setContentHuggingPriority(.required, for: .horizontal)
+        recentlyClosedLimitPopup.removeAllItems()
+        recentlyClosedLimitPopup.addItems(withTitles: recentlyClosedLimits.map(String.init))
+        recentlyClosedLimitPopup.target = self
+        recentlyClosedLimitPopup.action = #selector(recentlyClosedLimitChanged)
+        contents.addContent(SettingsRowView(
+            title: "Recently closed to show",
+            subtitle: "Maximum number of recently closed items listed in search.",
+            accessory: recentlyClosedLimitPopup
         ))
 
         searchModePopup.controlSize = .small
@@ -138,7 +184,22 @@ final class GeneralSettingsViewController: NSViewController {
         betaSwitch.action = #selector(toggleBeta(_:))
         updates.addContent(betaRow)
 
-        view = SettingsLayout.makeScrollingTab(sections: [behavior, shortcut, contents, appLists, permissions, updates])
+        // Experimental section — off by default, clearly flagged as unstable.
+        let experimental = SettingsSectionView(header: "Experimental")
+        configureSwitch(swipeSwitch, action: #selector(toggleSwipe(_:)))
+        experimental.addContent(SettingsRowView(
+            title: "Open with trackpad swipe",
+            subtitle: "Three-finger horizontal swipe opens the switcher. May conflict with Mission Control / page navigation; release ⌘ won't commit — pick with Return, click, or Esc.",
+            accessory: swipeSwitch
+        ))
+        configureSwitch(badgesSwitch, action: #selector(toggleBadges(_:)))
+        experimental.addContent(SettingsRowView(
+            title: "Show unread badges",
+            subtitle: "Reads app badge counts from the Dock. Fragile and language-dependent; may not match every app.",
+            accessory: badgesSwitch
+        ))
+
+        view = SettingsLayout.makeScrollingTab(sections: [behavior, shortcut, contents, appLists, permissions, experimental, updates])
     }
 
     private func configureSwitch(_ toggle: NSSwitch, action: Selector) {
@@ -166,6 +227,14 @@ final class GeneralSettingsViewController: NSViewController {
         hiddenSwitch.state = prefs.showHiddenApps ? .on : .off
         windowlessSwitch.state = prefs.showWindowlessApps ? .on : .off
         fuzzySwitch.state = prefs.fuzzySearchEnabled ? .on : .off
+        launcherSwitch.state = prefs.searchIncludesLaunchableApps ? .on : .off
+        recentlyClosedSwitch.state = prefs.showRecentlyClosed ? .on : .off
+        selectRecentlyClosedLimit(prefs.recentlyClosedLimit)
+        recentlyClosedLimitPopup.isEnabled = prefs.showRecentlyClosed
+        hapticSwitch.state = prefs.hapticOnCommit ? .on : .off
+        soundSwitch.state = prefs.soundOnCommit ? .on : .off
+        swipeSwitch.state = prefs.experimentalSwipeTrigger ? .on : .off
+        badgesSwitch.state = prefs.experimentalUnreadBadges ? .on : .off
         selectSearchMode(prefs.searchDismissMode)
         updateAppListCounts()
 
@@ -236,6 +305,47 @@ final class GeneralSettingsViewController: NSViewController {
 
     @objc private func toggleFuzzy(_ sender: NSSwitch) {
         Preferences.shared.fuzzySearchEnabled = (sender.state == .on)
+    }
+
+    @objc private func toggleLauncher(_ sender: NSSwitch) {
+        Preferences.shared.searchIncludesLaunchableApps = (sender.state == .on)
+    }
+
+    @objc private func toggleRecentlyClosed(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        Preferences.shared.showRecentlyClosed = on
+        recentlyClosedLimitPopup.isEnabled = on
+    }
+
+    @objc private func recentlyClosedLimitChanged() {
+        let idx = recentlyClosedLimitPopup.indexOfSelectedItem
+        guard recentlyClosedLimits.indices.contains(idx) else { return }
+        Preferences.shared.recentlyClosedLimit = recentlyClosedLimits[idx]
+    }
+
+    private func selectRecentlyClosedLimit(_ value: Int) {
+        // Snap to the closest offered value if a stored limit isn't in the list.
+        if let exact = recentlyClosedLimits.firstIndex(of: value) {
+            recentlyClosedLimitPopup.selectItem(at: exact)
+        } else if let nearest = recentlyClosedLimits.enumerated().min(by: { abs($0.element - value) < abs($1.element - value) }) {
+            recentlyClosedLimitPopup.selectItem(at: nearest.offset)
+        }
+    }
+
+    @objc private func toggleHaptic(_ sender: NSSwitch) {
+        Preferences.shared.hapticOnCommit = (sender.state == .on)
+    }
+
+    @objc private func toggleSound(_ sender: NSSwitch) {
+        Preferences.shared.soundOnCommit = (sender.state == .on)
+    }
+
+    @objc private func toggleSwipe(_ sender: NSSwitch) {
+        Preferences.shared.experimentalSwipeTrigger = (sender.state == .on)
+    }
+
+    @objc private func toggleBadges(_ sender: NSSwitch) {
+        Preferences.shared.experimentalUnreadBadges = (sender.state == .on)
     }
 
     @objc private func searchModeChanged() {

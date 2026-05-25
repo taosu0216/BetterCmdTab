@@ -31,6 +31,54 @@ enum SearchDismissMode: String, CaseIterable {
     }
 }
 
+/// Accent color used for the selection highlight and the type-to-jump letter
+/// prefix. `.system` follows the user's macOS accent (`controlAccentColor`);
+/// every other case is a fixed color.
+enum SwitcherAccent: String, CaseIterable {
+    case system
+    case blue
+    case purple
+    case pink
+    case red
+    case orange
+    case yellow
+    case green
+    case graphite
+
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .blue: return "Blue"
+        case .purple: return "Purple"
+        case .pink: return "Pink"
+        case .red: return "Red"
+        case .orange: return "Orange"
+        case .yellow: return "Yellow"
+        case .green: return "Green"
+        case .graphite: return "Graphite"
+        }
+    }
+
+    /// Fixed color, or `nil` when the choice tracks the system accent.
+    var color: NSColor? {
+        switch self {
+        case .system: return nil
+        case .blue: return .systemBlue
+        case .purple: return .systemPurple
+        case .pink: return .systemPink
+        case .red: return .systemRed
+        case .orange: return .systemOrange
+        case .yellow: return .systemYellow
+        case .green: return .systemGreen
+        case .graphite: return .systemGray
+        }
+    }
+
+    /// The concrete color to draw with right now. Resolving `.system` lazily
+    /// keeps it appearance-reactive (light/dark) like the rest of AppKit.
+    var resolved: NSColor { color ?? .controlAccentColor }
+}
+
 /// Overall size multiplier applied to the switcher panel (icons, text, spacing).
 enum PanelSize: String, CaseIterable {
     case small
@@ -79,6 +127,14 @@ final class Preferences: ObservableObject {
         static let showWindowlessApps = "Switcher.showWindowlessApps"
         static let fuzzySearchEnabled = "Switcher.fuzzySearchEnabled"
         static let searchDismissMode = "Switcher.searchDismissMode"
+        static let searchIncludesLaunchableApps = "Switcher.searchIncludesLaunchableApps"
+        static let showRecentlyClosed = "Switcher.showRecentlyClosed"
+        static let recentlyClosedLimit = "Switcher.recentlyClosedLimit"
+        static let hapticOnCommit = "Switcher.hapticOnCommit"
+        static let soundOnCommit = "Switcher.soundOnCommit"
+        static let accentChoice = "Switcher.accentChoice"
+        static let experimentalSwipeTrigger = "Switcher.experimentalSwipeTrigger"
+        static let experimentalUnreadBadges = "Switcher.experimentalUnreadBadges"
     }
 
     @Published var switcherLayoutMode: SwitcherLayoutMode {
@@ -173,6 +229,77 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// While searching, also offer matching apps that aren't running yet so they
+    /// can be launched straight from the switcher. Default on.
+    @Published var searchIncludesLaunchableApps: Bool {
+        didSet {
+            guard oldValue != searchIncludesLaunchableApps else { return }
+            UserDefaults.standard.set(searchIncludesLaunchableApps, forKey: Keys.searchIncludesLaunchableApps)
+        }
+    }
+
+    /// Show recently closed windows/apps in the switcher (at the end of the
+    /// list, and matched while searching) so they can be reopened. Default off
+    /// so it doesn't change the default switcher list until opted into.
+    @Published var showRecentlyClosed: Bool {
+        didSet {
+            guard oldValue != showRecentlyClosed else { return }
+            UserDefaults.standard.set(showRecentlyClosed, forKey: Keys.showRecentlyClosed)
+        }
+    }
+
+    /// How many recently closed entries to surface in search at most. Default 5.
+    @Published var recentlyClosedLimit: Int {
+        didSet {
+            guard oldValue != recentlyClosedLimit else { return }
+            UserDefaults.standard.set(recentlyClosedLimit, forKey: Keys.recentlyClosedLimit)
+        }
+    }
+
+    /// Fire a trackpad haptic tap when a selection is committed. Only Force
+    /// Touch trackpads produce a sensation; elsewhere it's a no-op. Default off.
+    @Published var hapticOnCommit: Bool {
+        didSet {
+            guard oldValue != hapticOnCommit else { return }
+            UserDefaults.standard.set(hapticOnCommit, forKey: Keys.hapticOnCommit)
+        }
+    }
+
+    /// Play a subtle click sound when a selection is committed. Default off.
+    @Published var soundOnCommit: Bool {
+        didSet {
+            guard oldValue != soundOnCommit else { return }
+            UserDefaults.standard.set(soundOnCommit, forKey: Keys.soundOnCommit)
+        }
+    }
+
+    /// Accent color for the selection highlight and letter-jump prefix.
+    @Published var accentChoice: SwitcherAccent {
+        didSet {
+            guard oldValue != accentChoice else { return }
+            UserDefaults.standard.set(accentChoice.rawValue, forKey: Keys.accentChoice)
+        }
+    }
+
+    /// Experimental: open the switcher with a horizontal three-finger trackpad
+    /// swipe. Relies on global swipe events the system may also consume, so it's
+    /// best-effort and off by default. [[experimental-features]]
+    @Published var experimentalSwipeTrigger: Bool {
+        didSet {
+            guard oldValue != experimentalSwipeTrigger else { return }
+            UserDefaults.standard.set(experimentalSwipeTrigger, forKey: Keys.experimentalSwipeTrigger)
+        }
+    }
+
+    /// Experimental: show app unread-badge counts read from the Dock via the
+    /// Accessibility API. Fragile and locale-dependent; off by default.
+    @Published var experimentalUnreadBadges: Bool {
+        didSet {
+            guard oldValue != experimentalUnreadBadges else { return }
+            UserDefaults.standard.set(experimentalUnreadBadges, forKey: Keys.experimentalUnreadBadges)
+        }
+    }
+
     static func clampDelay(_ value: Int) -> Int {
         min(revealDelayRange.upperBound, max(revealDelayRange.lowerBound, value))
     }
@@ -200,5 +327,18 @@ final class Preferences: ObservableObject {
 
         let dismissRaw = defaults.string(forKey: Keys.searchDismissMode)
         self.searchDismissMode = dismissRaw.flatMap(SearchDismissMode.init(rawValue:)) ?? .holdModifier
+
+        self.searchIncludesLaunchableApps = defaults.object(forKey: Keys.searchIncludesLaunchableApps) as? Bool ?? true
+        self.showRecentlyClosed = defaults.object(forKey: Keys.showRecentlyClosed) as? Bool ?? false
+        self.recentlyClosedLimit = defaults.object(forKey: Keys.recentlyClosedLimit) as? Int ?? 5
+
+        self.hapticOnCommit = defaults.object(forKey: Keys.hapticOnCommit) as? Bool ?? false
+        self.soundOnCommit = defaults.object(forKey: Keys.soundOnCommit) as? Bool ?? false
+
+        let accentRaw = defaults.string(forKey: Keys.accentChoice)
+        self.accentChoice = accentRaw.flatMap(SwitcherAccent.init(rawValue:)) ?? .system
+
+        self.experimentalSwipeTrigger = defaults.object(forKey: Keys.experimentalSwipeTrigger) as? Bool ?? false
+        self.experimentalUnreadBadges = defaults.object(forKey: Keys.experimentalUnreadBadges) as? Bool ?? false
     }
 }

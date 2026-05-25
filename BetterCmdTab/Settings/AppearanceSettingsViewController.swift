@@ -7,6 +7,7 @@ final class AppearanceSettingsViewController: NSViewController {
     private let layoutPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let gridPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let accentPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let delaySlider = NSSlider()
     private let delayValueLabel = NSTextField(labelWithString: "")
 
@@ -16,6 +17,7 @@ final class AppearanceSettingsViewController: NSViewController {
     private let layoutModes: [SwitcherLayoutMode] = [.gridView, .list]
     private let panelSizes: [PanelSize] = PanelSize.allCases
     private let gridValues: [Int] = [0, 2, 3, 4, 5, 6] // 0 = automatic
+    private let accents: [SwitcherAccent] = SwitcherAccent.allCases
 
     override func loadView() {
         let section = SettingsSectionView(header: "Switcher")
@@ -31,6 +33,16 @@ final class AppearanceSettingsViewController: NSViewController {
             title: "Grid columns",
             subtitle: "Applies to the Grid layout only.",
             accessory: gridPopup
+        ))
+
+        configurePopup(accentPopup, titles: accents.map(\.displayName), action: #selector(accentChanged))
+        for (i, accent) in accents.enumerated() {
+            accentPopup.item(at: i)?.image = Self.swatch(for: accent)
+        }
+        section.addContent(SettingsRowView(
+            title: "Accent color",
+            subtitle: "Used for the selection highlight and type-to-jump letters.",
+            accessory: accentPopup
         ))
 
         delaySlider.minValue = Double(Preferences.revealDelayRange.lowerBound)
@@ -61,6 +73,25 @@ final class AppearanceSettingsViewController: NSViewController {
         ))
 
         view = SettingsLayout.makeScrollingTab(sections: [section])
+    }
+
+    /// Small filled-circle swatch shown beside each accent menu item. The
+    /// `.system` choice is drawn with the live accent color so it always
+    /// previews the user's macOS setting.
+    private static func swatch(for accent: SwitcherAccent) -> NSImage {
+        let size = NSSize(width: 12, height: 12)
+        let image = NSImage(size: size)
+        image.isTemplate = false
+        image.lockFocus()
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(ovalIn: rect)
+        accent.resolved.setFill()
+        path.fill()
+        NSColor.black.withAlphaComponent(0.15).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+        image.unlockFocus()
+        return image
     }
 
     private func configurePopup(_ popup: NSPopUpButton, titles: [String], action: Selector) {
@@ -94,6 +125,10 @@ final class AppearanceSettingsViewController: NSViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.applyDelay($0) }
             .store(in: &cancellables)
+        prefs.$accentChoice
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.selectAccent($0) }
+            .store(in: &cancellables)
     }
 
     override func viewWillDisappear() {
@@ -107,6 +142,7 @@ final class AppearanceSettingsViewController: NSViewController {
         selectSize(prefs.panelSize)
         selectGrid(prefs.gridMaxColumns)
         applyDelay(prefs.revealDelayMs)
+        selectAccent(prefs.accentChoice)
     }
 
     private func selectLayout(_ mode: SwitcherLayoutMode) {
@@ -126,6 +162,10 @@ final class AppearanceSettingsViewController: NSViewController {
         delayValueLabel.stringValue = "\(ms) ms"
     }
 
+    private func selectAccent(_ accent: SwitcherAccent) {
+        if let i = accents.firstIndex(of: accent) { accentPopup.selectItem(at: i) }
+    }
+
     @objc private func layoutChanged() {
         Preferences.shared.switcherLayoutMode = layoutModes[layoutPopup.indexOfSelectedItem]
     }
@@ -136,6 +176,10 @@ final class AppearanceSettingsViewController: NSViewController {
 
     @objc private func gridChanged() {
         Preferences.shared.gridMaxColumns = gridValues[gridPopup.indexOfSelectedItem]
+    }
+
+    @objc private func accentChanged() {
+        Preferences.shared.accentChoice = accents[accentPopup.indexOfSelectedItem]
     }
 
     @objc private func delayChanged(_ sender: NSSlider) {
