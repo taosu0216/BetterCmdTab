@@ -4,7 +4,7 @@
 
 # BetterCmdTab
 
-**The Cmd+Tab macOS deserves.**
+**The ⌘+Tab macOS deserves.**
 
 Fast · Native · Liquid Glass · Zero telemetry · Free forever
 
@@ -31,12 +31,12 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 
 ## Why
 
-macOS's built-in Cmd+Tab switches apps, not windows. Third-party alternatives either cost money (Witch, Contexts) or feel heavy and have not adopted Liquid Glass. BetterCmdTab is a single menu-bar agent that boots in milliseconds, draws with the system Liquid Glass material on macOS 26, and ships with no subscription, no license key, and no analytics.
+macOS's built-in ⌘+Tab switches apps, not windows. Third-party alternatives either cost money (Witch, Contexts) or feel heavy and have not adopted Liquid Glass. BetterCmdTab is a single menu-bar agent that boots in milliseconds, draws with the system Liquid Glass material on macOS 26, and ships with no subscription, no license key, and no analytics.
 
 ## Features
 
 - **Two layouts** — classic vertical list, or a grid of app icons with spatial arrow-key navigation.
-- **Window-level switching** — `` Cmd+ ` `` cycles the windows of the frontmost app. Works on every app.
+- **Window-level switching** — `` ⌘+ ` `` cycles the windows of the frontmost app. Works on every app.
 - **Letter-prefix jump** — start typing the first letters of an app name to reorder the list and jump to the match.
 - **Quick actions on the highlighted row** — quit, close window, minimize, hide, all without leaving the switcher.
 - **Liquid Glass backdrop on macOS 26**, NSVisualEffectView fallback below.
@@ -44,20 +44,13 @@ macOS's built-in Cmd+Tab switches apps, not windows. Third-party alternatives ei
 - **Shift+tap** to step backwards without holding Tab.
 - **Menu bar agent** — no dock icon, no main window, no Electron.
 
-## Performance
-
-- Hotkey event tap runs on a dedicated thread, so the first Cmd+Tab after launch is never blocked by main-thread work.
-- Accessibility observers install off-main during boot.
-- App catalog pre-warms in the background and serializes MRU bumps so the row order stays consistent on rapid Cmd+Tab presses.
-- Windows sort by real WindowServer z-order, not stale AX guesses.
-
 ## Install
 
 ### Download
 
 Grab the latest signed `.dmg` from the [Releases page](https://github.com/rokartur/BetterCmdTab/releases), open it, drag `BetterCmdTab.app` to `/Applications`, and launch.
 
-On first launch macOS will ask for **Accessibility** permission — this is required for the global Cmd+Tab event tap and for reading window lists via the Accessibility API. Grant it under `System Settings → Privacy & Security → Accessibility`.
+On first launch macOS will ask for **Accessibility** permission — this is required for the global ⌘+Tab event tap and for reading window lists via the Accessibility API. Grant it under `System Settings → Privacy & Security → Accessibility`.
 
 ### Build from source
 
