@@ -19,6 +19,16 @@ struct PreferencesEnumTests {
         #expect(Preferences.clampDelay(9999) == Preferences.revealDelayRange.upperBound)
         #expect(Preferences.clampDelay(150) == 150)
     }
+
+    @Test("SearchDismissMode round-trips through its raw value")
+    func searchDismissModeRawValues() {
+        for mode in SearchDismissMode.allCases {
+            #expect(SearchDismissMode(rawValue: mode.rawValue) == mode)
+            #expect(!mode.displayName.isEmpty)
+        }
+        // Unknown raw value yields nil so callers fall back to the default.
+        #expect(SearchDismissMode(rawValue: "nonsense") == nil)
+    }
 }
 
 @Suite("KeyboardShortcuts integration")

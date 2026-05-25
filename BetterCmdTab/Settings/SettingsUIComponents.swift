@@ -339,8 +339,16 @@ final class SettingsRowView: NSView {
     override func layout() {
         super.layout()
         let availableWidth = max(0, textColumn.frame.width)
-        if availableWidth > 1, subtitleLabel.preferredMaxLayoutWidth != availableWidth {
-            subtitleLabel.preferredMaxLayoutWidth = availableWidth
+        guard availableWidth > 1, subtitleLabel.preferredMaxLayoutWidth != availableWidth else { return }
+        // Setting `preferredMaxLayoutWidth` invalidates the label's intrinsic
+        // size, which dirties window constraints. Doing that synchronously
+        // inside the layout pass throws on macOS 26
+        // (`-[NSWindow _postWindowNeedsUpdateConstraints]`), so defer it out of
+        // the current display cycle. The guard makes it self-stabilizing — the
+        // deferred set only re-fires while the width genuinely differs.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.subtitleLabel.preferredMaxLayoutWidth != availableWidth else { return }
+            self.subtitleLabel.preferredMaxLayoutWidth = availableWidth
         }
     }
 }

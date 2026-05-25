@@ -19,14 +19,18 @@ enum AppCatalog {
         for app in regulars where !seen.contains(app.processIdentifier) {
             ordered.append(app)
         }
-        return ordered
+        return CatalogFilter.filteredApps(ordered, CatalogFilter.config())
     }
 
     static func snapshot(orderedBy mru: [pid_t]) -> [SwitcherRow] {
-        let selfPid = getpid()
+        // Self is intentionally included: BetterCmdTab should appear in the
+        // switcher when — and only when — it has a real standard window open
+        // (the Settings window). The switcher panel is a borderless
+        // non-activating NSPanel whose AX subrole isn't Standard/Dialog, so
+        // WindowEnumerator filters it out; with no window the accessory-app
+        // rule below drops self entirely.
         let candidates = NSWorkspace.shared.runningApplications.filter { app in
-            guard app.processIdentifier != selfPid else { return false }
-            return app.activationPolicy == .regular || app.activationPolicy == .accessory
+            app.activationPolicy == .regular || app.activationPolicy == .accessory
         }
 
         let count = candidates.count
@@ -99,12 +103,13 @@ enum AppCatalog {
             }
         }
 
-        return rows.enumerated().sorted { lhs, rhs in
+        let sorted = rows.enumerated().sorted { lhs, rhs in
             let pa = Self.statusPriority(lhs.element)
             let pb = Self.statusPriority(rhs.element)
             if pa != pb { return pa < pb }
             return lhs.offset < rhs.offset
         }.map { $0.element }
+        return CatalogFilter.filteredRows(sorted, CatalogFilter.config())
     }
 
     private static func statusPriority(_ row: SwitcherRow) -> Int {

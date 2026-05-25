@@ -103,12 +103,13 @@ final class AppCatalogCache {
                 }
             }
         }
-        return result.enumerated().sorted { lhs, rhs in
+        let sorted = result.enumerated().sorted { lhs, rhs in
             let pa = Self.statusPriority(lhs.element)
             let pb = Self.statusPriority(rhs.element)
             if pa != pb { return pa < pb }
             return lhs.offset < rhs.offset
         }.map { $0.element }
+        return CatalogFilter.filteredRows(sorted, CatalogFilter.config())
     }
 
     private static func statusPriority(_ row: SwitcherRow) -> Int {
@@ -140,10 +141,12 @@ final class AppCatalogCache {
     }
 
     nonisolated private static func computeEntries() -> [pid_t: AppCacheEntry] {
-        let selfPid = getpid()
+        // Self is included so the Settings window shows up in the switcher; the
+        // windowless switcher panel is filtered out by WindowEnumerator
+        // (non-standard AX subrole) and the accessory rule then drops self when
+        // no Settings window is open.
         let candidates = NSWorkspace.shared.runningApplications.filter { app in
-            guard app.processIdentifier != selfPid else { return false }
-            return app.activationPolicy == .regular || app.activationPolicy == .accessory
+            app.activationPolicy == .regular || app.activationPolicy == .accessory
         }
         let count = candidates.count
         guard count > 0 else { return [:] }
@@ -308,10 +311,10 @@ final class AppCatalogCache {
     }
 
     func bumpApp(pid: pid_t) {
-        guard pid != getpid() else {
-            entries.removeValue(forKey: pid)
-            return
-        }
+        // Self is no longer force-removed: as an accessory app it only earns a
+        // cache entry when it has a window (the Settings window). Showing/hiding
+        // the borderless switcher panel yields no standard window, so a self
+        // bump just clears the entry again.
         if pidBumpInFlight.contains(pid) {
             pidBumpPending.insert(pid)
             return

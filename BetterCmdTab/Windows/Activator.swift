@@ -123,13 +123,27 @@ enum Activator {
     }
 
     static func closeWindow(_ row: SwitcherRow) {
-        let window = row.window
+        guard let window = row.window else { return }
         let pid = row.pid
         let isFullscreen = row.isFullscreen
 
-        Task.detached(priority: .userInitiated) {
-            guard let window else { return }
+        // Acting on our own window (the Settings window now appears in the
+        // switcher): the AX press runs in-process and drives NSWindow /
+        // window-management code, which must execute on the main thread —
+        // running it off-main trips the main-thread checker and crashes the
+        // whole app. `DispatchQueue.main` guarantees the real main thread;
+        // a `Task { @MainActor }` would NOT, because the awaited
+        // `nonisolated async` press hops back onto the generic executor
+        // (SE-0338). Our own window's close button is available immediately,
+        // so no retry is needed. Cross-process targets stay off-main.
+        if pid == getpid() {
+            DispatchQueue.main.async {
+                Self.performCloseButtonPress(window: window)
+            }
+            return
+        }
 
+        Task.detached(priority: .userInitiated) {
             if isFullscreen {
                 AXUIElementPerformAction(window, kAXRaiseAction as CFString)
                 let wid = PrivateAPI.cgWindowId(of: window)
@@ -149,24 +163,34 @@ enum Activator {
 
     private static func pressCloseButton(window: AXUIElement, attempts: Int) async {
         for i in 0..<attempts {
-            var buttonValue: AnyObject?
-            let err = AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &buttonValue)
-            if err == .success, CFGetTypeID(buttonValue as CFTypeRef) == AXUIElementGetTypeID() {
-                let button = buttonValue as! AXUIElement
-                AXUIElementPerformAction(button, kAXPressAction as CFString)
-                return
-            }
+            if performCloseButtonPress(window: window) { return }
             if i < attempts - 1 {
                 try? await Task.sleep(nanoseconds: 150_000_000)
             }
         }
     }
 
+    /// Single synchronous attempt to press a window's AX close button. Returns
+    /// true if the button was found and pressed. Safe to call on any thread for
+    /// a cross-process window; for our OWN window the caller must be on the
+    /// main thread (it drives NSWindow teardown in-process).
+    @discardableResult
+    private static func performCloseButtonPress(window: AXUIElement) -> Bool {
+        var buttonValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &buttonValue)
+        guard err == .success, CFGetTypeID(buttonValue as CFTypeRef) == AXUIElementGetTypeID() else {
+            return false
+        }
+        AXUIElementPerformAction(buttonValue as! AXUIElement, kAXPressAction as CFString)
+        return true
+    }
+
     static func minimizeWindow(_ row: SwitcherRow) {
         guard let window = row.window else { return }
         let wasMinimized = row.isMinimized
         let app = row.app
-        DispatchQueue.global(qos: .userInitiated).async {
+
+        let apply = {
             if wasMinimized {
                 AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
                 DispatchQueue.main.async {
@@ -179,6 +203,15 @@ enum Activator {
                 return
             }
             AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        }
+
+        // Mutating AX state on our own window must happen on the main thread
+        // (same window-management constraint as closeWindow). Other apps stay
+        // off-main so a slow cross-process AX call never blocks ours.
+        if row.pid == getpid() {
+            DispatchQueue.main.async(execute: apply)
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async(execute: apply)
         }
     }
 
