@@ -64,10 +64,13 @@ struct SwitcherMetrics: Equatable {
 
     static let baseline = SwitcherMetrics.forScale(1.0, layoutMode: .list)
 
-    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list) -> SwitcherMetrics {
+    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list, userScale: CGFloat = 1.0) -> SwitcherMetrics {
         let width = screen?.frame.width ?? referenceWidth
         let raw = width / referenceWidth
-        let clamped = max(1.0, min(1.8, raw))
+        // Screen-adaptive clamp first (keep base size on small displays, cap on
+        // huge ones), then fold in the user's size preference as a free multiplier
+        // so "Small" can shrink below the 1.0 floor.
+        let clamped = max(1.0, min(1.8, raw)) * userScale
         return forScale(clamped, layoutMode: layoutMode)
     }
 

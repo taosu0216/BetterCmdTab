@@ -3,19 +3,22 @@ import AppKit
 @MainActor
 enum SettingsTab: Int, CaseIterable {
     case general
+    case appearance
     case about
 
     var title: String {
         switch self {
-        case .general: return "General"
-        case .about:   return "About"
+        case .general:    return "General"
+        case .appearance: return "Appearance"
+        case .about:      return "About"
         }
     }
 
     var symbol: String {
         switch self {
-        case .general: return "gearshape.fill"
-        case .about:   return "info.circle.fill"
+        case .general:    return "gearshape.fill"
+        case .appearance: return "slider.horizontal.3"
+        case .about:      return "info.circle.fill"
         }
     }
 
@@ -37,6 +40,15 @@ enum SettingsTab: Int, CaseIterable {
                 symbolColor: .white,
                 symbolWeight: .semibold,
                 symbolPointSize: 14
+            )
+        case .appearance:
+            // Teal → blue gradient — distinct from the neutral gear and violet info.
+            return IconPalette(
+                start: NSColor(calibratedRed: 52.0/255, green: 199.0/255, blue: 190.0/255, alpha: 1),
+                end: NSColor(calibratedRed: 30.0/255, green: 132.0/255, blue: 220.0/255, alpha: 1),
+                symbolColor: .white,
+                symbolWeight: .semibold,
+                symbolPointSize: 12
             )
         case .about:
             // Indigo → violet gradient with a white "i" — distinctive next to

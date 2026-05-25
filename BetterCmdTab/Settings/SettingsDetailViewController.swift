@@ -87,8 +87,9 @@ final class SettingsDetailViewController: NSViewController {
         }
         let new: NSViewController
         switch tab {
-        case .general: new = GeneralSettingsViewController()
-        case .about:   new = AboutSettingsViewController()
+        case .general:    new = GeneralSettingsViewController()
+        case .appearance: new = AppearanceSettingsViewController()
+        case .about:      new = AboutSettingsViewController()
         }
         cache[tab] = new
         addChild(new)

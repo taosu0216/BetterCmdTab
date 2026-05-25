@@ -375,7 +375,9 @@ final class SwitcherView: NSView {
         // Each tile occupies (tile + gap), final tile has no trailing gap.
         let perTileStride = tile + gap
         let tilesPerRow = max(1, Int(floor((maxListWidth + gap) / perTileStride)))
-        let cols = min(count, tilesPerRow)
+        // User cap (0 = automatic, width-driven).
+        let userCap = Preferences.shared.gridMaxColumns
+        let cols = userCap > 0 ? min(count, tilesPerRow, userCap) : min(count, tilesPerRow)
         let rowsCount = max(1, Int(ceil(Double(count) / Double(cols))))
 
         let itemH = tile + labelArea
