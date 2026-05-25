@@ -51,4 +51,25 @@ struct SwitcherMetricsTests {
         #expect(SwitcherMetrics.forScale(1.2) == SwitcherMetrics.forScale(1.2))
         #expect(SwitcherMetrics.forScale(1.2) != SwitcherMetrics.forScale(1.3))
     }
+
+    @Test("userScale below 1.0 shrinks past the screen-adaptive floor")
+    func userScaleSmall() {
+        // nil screen → adaptive scale 1.0; userScale 0.85 must apply on top,
+        // proving the multiply happens after the max(1.0, …) clamp.
+        let m = SwitcherMetrics.forScreen(nil, userScale: 0.85)
+        #expect(m.scale == 0.85)
+        #expect(m.iconSize == (SwitcherMetrics.baseIconSize * 0.85).rounded())
+    }
+
+    @Test("userScale above 1.0 enlarges the panel")
+    func userScaleLarge() {
+        let m = SwitcherMetrics.forScreen(nil, userScale: 1.2)
+        #expect(m.scale == 1.2)
+        #expect(m.tileIconSize == (SwitcherMetrics.baseTileIconSize * 1.2).rounded())
+    }
+
+    @Test("userScale defaults to 1.0 (no behavior change)")
+    func userScaleDefault() {
+        #expect(SwitcherMetrics.forScreen(nil) == SwitcherMetrics.forScreen(nil, userScale: 1.0))
+    }
 }
