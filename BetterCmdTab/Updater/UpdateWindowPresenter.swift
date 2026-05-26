@@ -53,6 +53,10 @@ final class UpdateWindowPresenter {
 
     func hide() {
         panel?.orderOut(nil)
+        // Release the release-notes image cache (up to 24 MB) now that the
+        // window is gone — it would otherwise persist for the app's lifetime
+        // after a single viewing. Re-downloaded lazily on the next open.
+        MarkdownImageCache.clearAll()
     }
 
     var isVisible: Bool {
