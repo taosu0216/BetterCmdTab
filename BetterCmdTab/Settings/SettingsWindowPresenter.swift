@@ -7,6 +7,7 @@ final class SettingsWindowPresenter {
 
     private var window: NSWindow?
     private var windowController: NSWindowController?
+    private var closeObserver: NSObjectProtocol?
 
     private init() {}
 
@@ -32,6 +33,42 @@ final class SettingsWindowPresenter {
 
     func hide() {
         window?.orderOut(nil)
+    }
+
+    /// Closing the window (red button / ⌘W) releases the whole window tree —
+    /// the split view controller, the sidebar, and every cached per-tab
+    /// controller with its views, gradient layers and images — so RAM returns
+    /// to the pre-open baseline instead of staying resident for the process
+    /// lifetime. `show()` lazily rebuilds it on the next open. None of the tab
+    /// controllers retain `self` (all Combine sinks/observers/timers use
+    /// `[weak self]` and are torn down on disappear), so dropping these two
+    /// references is enough for ARC to free the tree.
+    ///
+    /// Runs as a separate main-queue operation (the `willClose` observer uses
+    /// `queue: .main`), i.e. after AppKit's close sequence unwinds — releasing
+    /// the window's last reference *during* `close` would dealloc it mid-call.
+    private func teardownAfterClose() {
+        if let token = closeObserver {
+            NotificationCenter.default.removeObserver(token)
+            closeObserver = nil
+        }
+        // Drop the content view controller (and toolbar) explicitly so the whole
+        // VC/view tree — the controls, gradient layers and images that grow the
+        // footprint — is released right now, decoupled from when the NSWindow
+        // object itself finally deallocs (it can linger briefly in an autorelease
+        // pool or in NSApp's window list).
+        //
+        // This genuinely frees the memory, but the process footprint won't fall
+        // all the way back to the pre-open baseline: macOS keeps freed small
+        // allocations mapped in libmalloc's per-size free lists for fast reuse
+        // rather than returning them to the OS (malloc_zone_pressure_relief is a
+        // measured no-op for these — it reclaims 0). The memory is not leaked:
+        // reopening Settings reuses these pages instead of growing the footprint,
+        // and the kernel reclaims them under real memory pressure.
+        window?.contentViewController = nil
+        window?.toolbar = nil
+        windowController = nil
+        window = nil
     }
 
     private func createWindow() {
@@ -71,6 +108,19 @@ final class SettingsWindowPresenter {
 
         self.window = win
         self.windowController = NSWindowController(window: win)
+
+        // Free the window tree when the user closes it (see teardownAfterClose).
+        // Scoped to this window; `queue: .main` defers the block until after the
+        // close sequence finishes.
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: win,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.teardownAfterClose()
+            }
+        }
     }
 }
 
