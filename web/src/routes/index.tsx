@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export const Route = createFileRoute("/")({
@@ -29,18 +29,26 @@ const inView = {
 } as const;
 
 const shots: Array<[string, string]> = [
-  ["/screenshots/list.svg", "Classic vertical list"],
-  ["/screenshots/grid.svg", "Grid of app icons"],
+  ["/screenshots/list.jpg", "Classic vertical list"],
+  ["/screenshots/grid.jpg", "Grid of app icons"],
 ];
 
 const features: Array<[string, string]> = [
   ["Two layouts", "classic list, or a grid of icons"],
+  ["Letter-prefix jump", "type a name to jump to it"],
+  ["Search & launch", "press / to fuzzy-find, or launch any installed app"],
   ["Window switching", "Cmd+` cycles windows of the front app"],
-  ["Letter-prefix jump", "type a name to filter and jump"],
+  ["Recently closed", "reopen an app you just quit"],
+  ["Pin & filter", "keep favorites up top, hide the rest"],
   ["Quick actions", "quit, close, minimize, hide inline"],
+  ["Unread badges", "Dock badge counts, in the switcher"],
+  ["Audio indicator", "flags apps playing sound"],
+  ["Instant Spaces", "switch Spaces with no animation"],
   ["Liquid Glass", "system material on macOS 26"],
   ["Multi-monitor", "opens on the screen under the cursor"],
-  ["Menu bar agent", "no dock icon, no main window, no Electron"],
+  ["Trackpad & haptics", "three-finger swipe, optional feedback"],
+  ["Configurable", "custom hotkey, size, scale, layout"],
+  ["Menu bar agent", "no dock icon, no Electron, hideable icon"],
 ];
 
 const shortcuts: Array<[string, string]> = [
@@ -49,6 +57,7 @@ const shortcuts: Array<[string, string]> = [
   ["Cmd `", "Next window of current app"],
   ["Cmd Shift `", "Previous window of current app"],
   ["Cmd letters", "Jump to app starting with that letter"],
+  ["Cmd /", "Toggle search — filter or launch any app"],
   ["Cmd Q", "Quit the highlighted app"],
   ["Cmd W", "Close the highlighted window"],
   ["Cmd M", "Minimize the highlighted window"],
@@ -179,16 +188,140 @@ function Shots() {
   );
 }
 
+function Keys({ combo }: { combo: string }) {
+  return (
+    <span className="keys">
+      {combo.split(" ").map((token, i) =>
+        token === "+" ? (
+          <span key={`sep-${i}`} className="key-sep">
+            +
+          </span>
+        ) : (
+          <kbd key={`${token}-${i}`} className="kbd">
+            {token}
+          </kbd>
+        ),
+      )}
+    </span>
+  );
+}
+
 function Rows({ rows, combo }: { rows: Array<[string, string]>; combo?: boolean }) {
   return (
-    <motion.ul className="grid" variants={stagger}>
+    <motion.ul className={combo ? "grid keys-grid" : "grid"} variants={stagger}>
       {rows.map(([key, desc]) => (
         <motion.li key={key} variants={reveal} whileHover={{ x: 4 }}>
-          <span className={combo ? "key combo" : "key"}>{key}</span>
+          {combo ? <Keys combo={key} /> : <span className="key">{key}</span>}
           <span className="desc">{desc}</span>
         </motion.li>
       ))}
     </motion.ul>
+  );
+}
+
+const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/<>_-$";
+
+function useScramble(text: string, active: boolean, enabled: boolean): string {
+  const [out, setOut] = useState(text);
+  const idRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (idRef.current !== undefined) window.clearInterval(idRef.current);
+
+    if (!enabled || !active) {
+      setOut(text);
+      return;
+    }
+
+    let i = 0;
+    idRef.current = window.setInterval(() => {
+      setOut(
+        text
+          .split("")
+          .map((ch, idx) => {
+            if (ch === " " || ch === ".") return ch;
+            if (idx < Math.floor(i)) return text[idx];
+            return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+          })
+          .join(""),
+      );
+      i += 0.5;
+      if (i >= text.length) {
+        if (idRef.current !== undefined) window.clearInterval(idRef.current);
+        setOut(text);
+      }
+    }, 28);
+
+    return () => {
+      if (idRef.current !== undefined) window.clearInterval(idRef.current);
+    };
+  }, [text, active, enabled]);
+
+  return out;
+}
+
+function DownloadCta({ href }: { href: string }) {
+  const reduce = useReducedMotion();
+  const [active, setActive] = useState(false);
+  const label = useScramble("Download .dmg", active, !reduce);
+
+  return (
+    <motion.a
+      className="cta"
+      href={href}
+      download
+      onHoverStart={() => setActive(true)}
+      onHoverEnd={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={() => setActive(false)}
+      whileTap={{ scale: 0.98 }}
+    >
+      <svg
+        className="cta-icon"
+        width="14"
+        height="15"
+        viewBox="0 0 14 15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <motion.g
+          animate={active && !reduce ? { y: [0, 4, 4, 0] } : { y: 0 }}
+          transition={
+            active && !reduce
+              ? {
+                  duration: 1,
+                  times: [0, 0.32, 0.46, 1],
+                  ease: ["easeIn", "linear", "easeOut"],
+                  repeat: Infinity,
+                  repeatDelay: 0.1,
+                }
+              : { duration: 0.25 }
+          }
+        >
+          <path d="M7 2 V9" />
+          <path d="M4 6 L7 9 L10 6" />
+        </motion.g>
+        <motion.path
+          className="cta-tray"
+          d="M2.5 13 H11.5"
+          animate={
+            active && !reduce
+              ? { scaleX: [1, 1, 1.25, 1], opacity: [0.6, 0.6, 1, 0.85] }
+              : { scaleX: 1, opacity: 0.85 }
+          }
+          transition={
+            active && !reduce
+              ? { duration: 1, times: [0, 0.34, 0.46, 1], repeat: Infinity, repeatDelay: 0.1 }
+              : { duration: 0.25 }
+          }
+        />
+      </svg>
+      <span className="cta-label">{label}</span>
+    </motion.a>
   );
 }
 
@@ -200,14 +333,24 @@ function Home() {
       <main className="page">
         <motion.header className="intro" variants={stagger} initial="hidden" animate="show">
           <motion.h1 className="brand" variants={reveal}>
-            <img className="brand-icon" src="/icon.png" alt="" width={26} height={26} />
+            <motion.img
+              className="brand-icon"
+              src="/icon.png"
+              alt=""
+              width={26}
+              height={26}
+              whileHover={{ rotate: -8, scale: 1.1 }}
+              whileTap={{ scale: 0.94 }}
+              transition={{ type: "spring", stiffness: 500, damping: 16 }}
+            />
             BetterCmdTab
           </motion.h1>
           <motion.p className="tagline" variants={reveal}>
             The Cmd+Tab macOS deserves.
+            <span className="caret" aria-hidden />
           </motion.p>
           <motion.p className="lede" variants={reveal}>
-            A fast, native window switcher for macOS.
+            A fast, native window switcher and app launcher for macOS.
             <br />
             Free forever, zero telemetry, no subscription.
           </motion.p>
@@ -226,15 +369,7 @@ function Home() {
         <motion.section {...inView}>
           <motion.h2 variants={reveal}>Download</motion.h2>
           <motion.p className="row" variants={reveal}>
-            <motion.a
-              className="cta"
-              href={dmgUrl}
-              download
-              whileHover={{ y: -1 }}
-              whileTap={{ y: 0 }}
-            >
-              ↓ Download .dmg
-            </motion.a>
+            <DownloadCta href={dmgUrl} />
             <span className="muted">
               {version ? `${version} · ` : ""}macOS 13.0+ · Apple Silicon &amp; Intel
             </span>

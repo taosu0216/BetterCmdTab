@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000">
-  <rect width="1600" height="1000" fill="#0d0d0d"/>
-  <rect x="1" y="1" width="1598" height="998" fill="none" stroke="#222" stroke-width="2"/>
-  <text x="800" y="492" fill="#3a3a3a" font-family="ui-monospace, monospace" font-size="44" text-anchor="middle">List layout</text>
-  <text x="800" y="552" fill="#2a2a2a" font-family="ui-monospace, monospace" font-size="22" text-anchor="middle">replace → public/screenshots/list.png</text>
-</svg>
