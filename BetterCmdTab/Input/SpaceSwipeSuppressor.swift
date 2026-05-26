@@ -92,6 +92,14 @@ final class SpaceSwipeSuppressor {
         let hidType = event.getIntegerValueField(field(CGS.fieldHIDType))
         guard hidType == CGS.hidDockSwipe else { return Unmanaged.passUnretained(event) }
 
+        // Suppress only *real* trackpad swipes (posted by the HID kernel, source
+        // pid 0). Our own instant-Space-switch synthetic swipe carries this
+        // process's pid — let it through, or this tap would eat it and the
+        // jump-to-Space would silently fail whenever the swipe trigger is on.
+        if event.getIntegerValueField(.eventSourceUnixProcessID) != 0 {
+            return Unmanaged.passUnretained(event)
+        }
+
         // Suppress only the horizontal Space swipe; pass vertical dock swipes
         // (Mission Control / App Exposé) through untouched.
         let motion = event.getIntegerValueField(field(CGS.fieldSwipeMotion))

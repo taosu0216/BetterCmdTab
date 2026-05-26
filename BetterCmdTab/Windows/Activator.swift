@@ -91,10 +91,11 @@ enum Activator {
         let wid = PrivateAPI.cgWindowId(of: window)
 
         // Jump to the window's Space instantly (no slide) before raising, so the
-        // raise lands on the now-current Space instead of animating across.
-        if instantSpace, wid != 0 {
-            PrivateAPI.switchToSpace(ofWindow: wid)
-        }
+        // raise lands on the now-current Space instead of animating across. This
+        // posts a synthetic Dock-swipe (see PrivateAPI.switchToSpace); when it
+        // fires we must NOT also do the cross-Space `raiseWindow` below, whose
+        // `_SLPS…` raise can win the race and animate-switch past the target.
+        let postedSpaceSwitch = instantSpace && wid != 0 && PrivateAPI.switchToSpace(ofWindow: wid)
 
         // Order matches process activation first (synchronous
         // path via NSRunningApplication.activate), then per-window raise via
@@ -105,7 +106,7 @@ enum Activator {
 
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
 
-        if wid != 0 {
+        if wid != 0 && !postedSpaceSwitch {
             PrivateAPI.raiseWindow(pid: pid, wid: wid)
         }
 

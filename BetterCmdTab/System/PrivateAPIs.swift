@@ -70,13 +70,16 @@ enum PrivateAPI {
     // (cid, CGSSpaceMask, CFArray<window ids>) -> CFArray<space ids>
     private static let copySpacesForWindowsFn: (@convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?)? =
         sym("CGSCopySpacesForWindows", in: skyLight)
-    // (cid, spaceID) -> display UUID string the Space lives on
-    private static let copyDisplayForSpaceFn: (@convention(c) (Int32, UInt64) -> Unmanaged<CFString>?)? =
-        sym("CGSCopyManagedDisplayForSpace", in: skyLight)
-    // (cid, display UUID, spaceID) — set the display's current Space directly,
-    // with no slide animation (unlike a window raise that crosses Spaces).
-    private static let setCurrentSpaceFn: (@convention(c) (Int32, CFString, UInt64) -> Void)? =
-        sym("CGSManagedDisplaySetCurrentSpace", in: skyLight)
+    // (cid) -> CFArray of per-display dicts; each carries an ordered "Spaces"
+    // array (space dicts keyed by "id64") and a "Current Space" dict. Used to
+    // turn the target window's Space into a signed left/right step count from
+    // the display's current Space, which the synthetic swipe below then walks.
+    private static let copyManagedDisplaySpacesFn: (@convention(c) (Int32) -> Unmanaged<CFArray>?)? =
+        sym("CGSCopyManagedDisplaySpaces", in: skyLight)
+    // (cid) -> the focused Space id. Identifies which display the synthetic
+    // swipe will move, so we only post one for jumps within that display.
+    private static let getActiveSpaceFn: (@convention(c) (Int32) -> UInt64)? =
+        sym("CGSGetActiveSpace", in: skyLight)
 
     /// One-shot startup diagnostic. Returns the list of dlsym symbols that
     /// failed to resolve, so AppDelegate can surface a single warning instead
@@ -90,36 +93,147 @@ enum PrivateAPI {
         if getProcessForPIDFn == nil { missing.append("GetProcessForPID") }
         if mainConnectionFn == nil { missing.append("CGSMainConnectionID") }
         if copySpacesForWindowsFn == nil { missing.append("CGSCopySpacesForWindows") }
-        if copyDisplayForSpaceFn == nil { missing.append("CGSCopyManagedDisplayForSpace") }
-        if setCurrentSpaceFn == nil { missing.append("CGSManagedDisplaySetCurrentSpace") }
+        if copyManagedDisplaySpacesFn == nil { missing.append("CGSCopyManagedDisplaySpaces") }
+        if getActiveSpaceFn == nil { missing.append("CGSGetActiveSpace") }
         return missing
     }
 
-    /// Jump instantly — no slide animation — to the Space that contains `wid`.
-    /// Resolves the window's Space via SkyLight, then sets it as the display's
-    /// current Space directly. Returns false if the Space can't be resolved, in
-    /// which case the caller falls back to the normal (animated) raise.
+    /// Switch instantly — no slide animation — to the Space that contains
+    /// `wid`, by synthesizing a horizontal Dock-swipe gesture: the same input
+    /// path a three-finger trackpad swipe drives.
+    ///
+    /// We used to call `CGSManagedDisplaySetCurrentSpace`, which sets the
+    /// current Space directly but skips the WindowServer's space-transition
+    /// machinery. Leaving a *full-screen* Space that way left the destination
+    /// regular Space with no menu bar (the Apple menu and app menus never came
+    /// back). Driving the legitimate gesture path keeps the menu bar correct; a
+    /// near-zero progress with a high velocity collapses the slide to nothing so
+    /// it still reads as instant.
+    ///
+    /// Returns true only when it actually posted a switch gesture — the caller
+    /// then skips its own cross-Space `raiseWindow`, whose `_SLPS…` raise can
+    /// win the race against the gesture and animate-switch past the target.
+    /// Returns false when already on the target Space or when it can't be
+    /// resolved, leaving the caller's normal raise (an animated, but
+    /// menu-bar-correct, cross-Space switch) as the fallback.
     @discardableResult
     static func switchToSpace(ofWindow wid: CGWindowID) -> Bool {
         guard wid != 0,
               let mainConnection = mainConnectionFn,
               let copySpaces = copySpacesForWindowsFn,
-              let copyDisplay = copyDisplayForSpaceFn,
-              let setCurrent = setCurrentSpaceFn else { return false }
+              let copyDisplays = copyManagedDisplaySpacesFn,
+              let getActiveSpace = getActiveSpaceFn else { return false }
 
         let cid = mainConnection()
+
+        // The Space the target window lives on.
         let windowList = [NSNumber(value: wid)] as CFArray
         // 0x7 = current | other | user Spaces — search them all.
         guard let spaces = copySpaces(cid, 0x7, windowList)?.takeRetainedValue(),
               CFArrayGetCount(spaces) > 0,
               let raw = CFArrayGetValueAtIndex(spaces, 0) else { return false }
-
         let number = Unmanaged<CFNumber>.fromOpaque(raw).takeUnretainedValue()
-        var sid: UInt64 = 0
-        guard CFNumberGetValue(number, .sInt64Type, &sid), sid != 0 else { return false }
-        guard let display = copyDisplay(cid, sid)?.takeRetainedValue() else { return false }
-        setCurrent(cid, display, sid)
+        var targetSpace: UInt64 = 0
+        guard CFNumberGetValue(number, .sInt64Type, &targetSpace), targetSpace != 0 else { return false }
+
+        // A synthetic swipe moves whichever display owns the focused Space, so
+        // anchor the step count there. How many Spaces left (−) or right (+) the
+        // target sits from the focused one. nil = the target is on a different
+        // display (let the caller's SLPS raise handle that — it stays menu-bar
+        // correct); 0 = already there. Either way, don't post a swipe.
+        let activeSpace = getActiveSpace(cid)
+        guard activeSpace != 0,
+              let cfDisplays = copyDisplays(cid)?.takeRetainedValue() else { return false }
+        let displays = (cfDisplays as NSArray).compactMap { $0 as? [String: Any] }
+        guard let steps = spaceStepDelta(displays: displays, from: activeSpace, to: targetSpace),
+              steps != 0 else { return false }
+
+        let magnitude = abs(steps)
+        // Match the reference: scale velocity by the jump distance so each of the
+        // `magnitude` swipes still commits instantly across several Spaces.
+        let velocity = dockSwipeVelocity * Double(magnitude)
+        for _ in 0..<magnitude {
+            postDockSwipe(rightward: steps > 0, velocity: velocity)
+        }
         return true
+    }
+
+    /// On the display that owns `activeSpace` (the one a swipe would move),
+    /// return `targetSpace`'s signed offset from it (negative = left, positive =
+    /// right). nil if `targetSpace` lives on a different display, so the caller
+    /// falls back rather than swiping the wrong display.
+    private static func spaceStepDelta(displays: [[String: Any]], from activeSpace: UInt64, to targetSpace: UInt64) -> Int? {
+        for display in displays {
+            guard let spaceArray = display["Spaces"] as? [Any] else { continue }
+            let ids = spaceArray.compactMap { ($0 as? [String: Any]).flatMap(spaceId) }
+            guard let currentIndex = ids.firstIndex(of: activeSpace) else { continue }
+            guard let targetIndex = ids.firstIndex(of: targetSpace) else { return nil }
+            return targetIndex - currentIndex
+        }
+        return nil
+    }
+
+    /// A Space's 64-bit id from its CGS dictionary. Recent macOS uses "id64";
+    /// older builds spelled it "ManagedSpaceID".
+    private static func spaceId(_ dict: [String: Any]) -> UInt64? {
+        if let n = dict["id64"] as? NSNumber { return n.uint64Value }
+        if let n = dict["ManagedSpaceID"] as? NSNumber { return n.uint64Value }
+        return nil
+    }
+
+    // MARK: - SkyLight: synthetic Dock-swipe (instant Space switch)
+
+    /// Base horizontal velocity for the synthetic swipe — high enough that the
+    /// WindowServer skips the slide animation (InstantSpaceSwitcher's default).
+    private static let dockSwipeVelocity = 2000.0
+
+    /// Undocumented CGS gesture event type / field ids, shared with
+    /// `SpaceSwipeSuppressor`. (Values from the IOHID/CGS private headers.)
+    private enum Swipe {
+        static let eventType: UInt32 = 55       // kCGSEventType
+        static let hidType: UInt32 = 110        // kCGEventGestureHIDType
+        static let motion: UInt32 = 123         // kCGEventGestureSwipeMotion
+        static let progress: UInt32 = 124       // kCGEventGestureSwipeProgress
+        static let velocityX: UInt32 = 129      // kCGEventGestureSwipeVelocityX
+        static let velocityY: UInt32 = 130      // kCGEventGestureSwipeVelocityY
+        static let phase: UInt32 = 132          // kCGEventGesturePhase
+
+        static let dockControl: Int64 = 30      // kCGSEventDockControl
+        static let dockSwipe: Int64 = 23        // kIOHIDEventTypeDockSwipe
+        static let horizontal: Int64 = 1        // kCGGestureMotionHorizontal
+
+        static let phaseBegan: Int64 = 1        // kCGSGesturePhaseBegan
+        static let phaseChanged: Int64 = 2      // kCGSGesturePhaseChanged
+        static let phaseEnded: Int64 = 4        // kCGSGesturePhaseEnded
+    }
+
+    /// Post one complete horizontal Dock-swipe (Began → Changed → Ended) in the
+    /// given direction. All three phases are required — a partial sequence
+    /// leaves the WindowServer mid-gesture and the switch never commits. The
+    /// progress is ±FLT_TRUE_MIN: signed so the direction registers, but far too
+    /// small to render any travel.
+    private static func postDockSwipe(rightward: Bool, velocity: Double) {
+        let tiny = Double(Float.leastNonzeroMagnitude)
+        let progress = rightward ? tiny : -tiny
+        let vx = rightward ? velocity : -velocity
+        for phase in [Swipe.phaseBegan, Swipe.phaseChanged, Swipe.phaseEnded] {
+            guard let ev = CGEvent(source: nil) else { return }
+            ev.setIntegerValueField(field(Swipe.eventType), value: Swipe.dockControl)
+            ev.setIntegerValueField(field(Swipe.hidType), value: Swipe.dockSwipe)
+            ev.setIntegerValueField(field(Swipe.phase), value: phase)
+            ev.setDoubleValueField(field(Swipe.progress), value: progress)
+            ev.setIntegerValueField(field(Swipe.motion), value: Swipe.horizontal)
+            ev.setDoubleValueField(field(Swipe.velocityX), value: vx)
+            ev.setDoubleValueField(field(Swipe.velocityY), value: vx)
+            ev.post(tap: .cgSessionEventTap)
+        }
+    }
+
+    /// `CGEventField` is a `uint32_t`-backed enum; the gesture field ids aren't
+    /// declared cases, so bit-cast the raw value to address them (same trick as
+    /// `SpaceSwipeSuppressor`).
+    private static func field(_ raw: UInt32) -> CGEventField {
+        unsafeBitCast(raw, to: CGEventField.self)
     }
 
     /// Raise a specific window across Spaces (including a fullscreen window
