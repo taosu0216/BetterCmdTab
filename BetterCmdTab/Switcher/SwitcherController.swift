@@ -12,6 +12,7 @@ final class SwitcherController: SwitcherViewDelegate {
 
     private let hotkey = HotkeyTap()
     private let swipeTrigger = SwipeTrigger()
+    private let spaceSwipeSuppressor = SpaceSwipeSuppressor()
     private let mru = MRUTracker()
     private let windowMRU = WindowMRUTracker()
     private let cache = AppCatalogCache()
@@ -212,10 +213,34 @@ final class SwitcherController: SwitcherViewDelegate {
         swipeTrigger.onSwipe = { [weak self] delta in
             self?.triggerFromGesture(delta: delta)
         }
+        swipeTrigger.onCommit = { [weak self] in
+            self?.commitFromGesture()
+        }
+        swipeTrigger.setReverseDirection(Preferences.shared.swipeReverseDirection)
+        swipeTrigger.setCommitOnRelease(Preferences.shared.swipeCommitOnRelease)
+        swipeTrigger.setSensitivity(Preferences.shared.swipeSensitivity)
         swipeTrigger.setEnabled(Preferences.shared.experimentalSwipeTrigger)
+        // The swipe takes over three-finger horizontal Spaces navigation, so
+        // suppress the system Space-swipe whenever the swipe is enabled.
+        spaceSwipeSuppressor.setEnabled(Preferences.shared.experimentalSwipeTrigger)
         Preferences.shared.$experimentalSwipeTrigger
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] enabled in self?.swipeTrigger.setEnabled(enabled) }
+            .sink { [weak self] enabled in
+                self?.swipeTrigger.setEnabled(enabled)
+                self?.spaceSwipeSuppressor.setEnabled(enabled)
+            }
+            .store(in: &cancellables)
+        Preferences.shared.$swipeReverseDirection
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] reverse in self?.swipeTrigger.setReverseDirection(reverse) }
+            .store(in: &cancellables)
+        Preferences.shared.$swipeCommitOnRelease
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] commit in self?.swipeTrigger.setCommitOnRelease(commit) }
+            .store(in: &cancellables)
+        Preferences.shared.$swipeSensitivity
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] level in self?.swipeTrigger.setSensitivity(level) }
             .store(in: &cancellables)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -245,6 +270,13 @@ final class SwitcherController: SwitcherViewDelegate {
             // modifier so releasing one never commits a gesture-opened switcher.
             stickyOpen = true
         }
+    }
+
+    /// Lifting all fingers off the trackpad commits the gesture-opened switcher
+    /// when "commit on release" is enabled. No-op when nothing is showing.
+    private func commitFromGesture() {
+        guard phase != .idle else { return }
+        commit()
     }
 
     private func pushHotkeyConfig() {

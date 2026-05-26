@@ -112,6 +112,9 @@ final class Preferences: ObservableObject {
     static let defaultRevealDelayMs = 100
     static let revealDelayRange: ClosedRange<Int> = 40...500
 
+    static let defaultSwipeSensitivity = 5
+    static let swipeSensitivityRange: ClosedRange<Int> = 1...10
+
     // Internal (not private): `CatalogFilter` reads the catalog-related keys
     // directly from `UserDefaults` off the main actor, so the key strings must
     // be shared rather than duplicated.
@@ -135,6 +138,9 @@ final class Preferences: ObservableObject {
         static let accentChoice = "Switcher.accentChoice"
         static let hideMenuBarIcon = "Switcher.hideMenuBarIcon"
         static let experimentalSwipeTrigger = "Switcher.experimentalSwipeTrigger"
+        static let swipeReverseDirection = "Switcher.swipeReverseDirection"
+        static let swipeCommitOnRelease = "Switcher.swipeCommitOnRelease"
+        static let swipeSensitivity = "Switcher.swipeSensitivity"
         static let experimentalUnreadBadges = "Switcher.experimentalUnreadBadges"
     }
 
@@ -302,6 +308,39 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// When false (default), sliding fingers right moves the selection right;
+    /// when true the axis is flipped. Only affects the three-finger swipe.
+    @Published var swipeReverseDirection: Bool {
+        didSet {
+            guard oldValue != swipeReverseDirection else { return }
+            UserDefaults.standard.set(swipeReverseDirection, forKey: Keys.swipeReverseDirection)
+        }
+    }
+
+    /// When true, lifting all fingers off the trackpad commits the three-finger
+    /// swipe's current selection. When false (default), the switcher stays open
+    /// so you commit with a click or Return.
+    @Published var swipeCommitOnRelease: Bool {
+        didSet {
+            guard oldValue != swipeCommitOnRelease else { return }
+            UserDefaults.standard.set(swipeCommitOnRelease, forKey: Keys.swipeCommitOnRelease)
+        }
+    }
+
+    /// How far fingers must slide to advance one app in the three-finger swipe,
+    /// as a 1–10 level. Higher = more sensitive (shorter slide per app).
+    @Published var swipeSensitivity: Int {
+        didSet {
+            let clamped = Self.clampSwipeSensitivity(swipeSensitivity)
+            if clamped != swipeSensitivity {
+                swipeSensitivity = clamped
+                return
+            }
+            guard oldValue != swipeSensitivity else { return }
+            UserDefaults.standard.set(swipeSensitivity, forKey: Keys.swipeSensitivity)
+        }
+    }
+
     /// Experimental: show app unread-badge counts read from the Dock via the
     /// Accessibility API. Fragile and locale-dependent; off by default.
     @Published var experimentalUnreadBadges: Bool {
@@ -313,6 +352,10 @@ final class Preferences: ObservableObject {
 
     static func clampDelay(_ value: Int) -> Int {
         min(revealDelayRange.upperBound, max(revealDelayRange.lowerBound, value))
+    }
+
+    static func clampSwipeSensitivity(_ value: Int) -> Int {
+        min(swipeSensitivityRange.upperBound, max(swipeSensitivityRange.lowerBound, value))
     }
 
     private init() {
@@ -352,6 +395,10 @@ final class Preferences: ObservableObject {
         self.hideMenuBarIcon = defaults.object(forKey: Keys.hideMenuBarIcon) as? Bool ?? false
 
         self.experimentalSwipeTrigger = defaults.object(forKey: Keys.experimentalSwipeTrigger) as? Bool ?? false
+        self.swipeReverseDirection = defaults.object(forKey: Keys.swipeReverseDirection) as? Bool ?? false
+        self.swipeCommitOnRelease = defaults.object(forKey: Keys.swipeCommitOnRelease) as? Bool ?? false
+        let sensitivity = defaults.object(forKey: Keys.swipeSensitivity) as? Int ?? Self.defaultSwipeSensitivity
+        self.swipeSensitivity = Self.clampSwipeSensitivity(sensitivity)
         self.experimentalUnreadBadges = defaults.object(forKey: Keys.experimentalUnreadBadges) as? Bool ?? false
     }
 }
