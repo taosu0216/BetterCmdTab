@@ -640,12 +640,7 @@ final class SwitcherController: SwitcherViewDelegate {
     private func reveal() {
         guard phase == .primed else { return }
         mru.syncFrontmost()
-        AudioActivityMonitor.shared.refresh()
-        if Preferences.shared.experimentalUnreadBadges {
-            DockBadgeReader.shared.refresh()
-        } else {
-            DockBadgeReader.shared.clear()
-        }
+        refreshAuxiliaryIndicators()
 
         if windowsOnlyMode, let pid = windowsOnlyPid {
             revealWindowsOnly(pid: pid)
@@ -712,6 +707,28 @@ final class SwitcherController: SwitcherViewDelegate {
                     guard let self, gen == self.revealGeneration else { return }
                     self.applyFullSnapshot(fresh, anchorPid: targetPid)
                 }
+            }
+        }
+    }
+
+    /// Audio-playing pids (CoreAudio) and Dock unread badges (the Dock's AX
+    /// tree) both come from synchronous system queries that don't belong on the
+    /// reveal critical path. Run them on a background queue and repaint the
+    /// indicators when they land: the panel shows instantly with the previous
+    /// snapshot (or no indicators on a cold first reveal) and patches the rest
+    /// in within a few ms.
+    private func refreshAuxiliaryIndicators() {
+        let wantsBadges = Preferences.shared.showUnreadBadges
+        if !wantsBadges { DockBadgeReader.shared.clear() }
+        let scanBadges = wantsBadges && DockBadgeReader.shared.shouldRefresh()
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            let pids = AudioActivityMonitor.snapshot()
+            let badges = scanBadges ? DockBadgeReader.snapshot() : nil
+            DispatchQueue.main.async {
+                AudioActivityMonitor.shared.apply(pids)
+                if let badges { DockBadgeReader.shared.apply(badges) }
+                guard let self, self.phase == .visible else { return }
+                self.refreshDisplay()
             }
         }
     }

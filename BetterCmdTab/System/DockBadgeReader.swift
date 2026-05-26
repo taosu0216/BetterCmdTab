@@ -1,16 +1,16 @@
 import AppKit
 import ApplicationServices
 
-/// Experimental: reads app badge labels (e.g. Mail's unread count) straight out
-/// of the Dock's Accessibility tree. There is no public API for another app's
-/// badge, so this walks the Dock process's AX elements and pulls the
-/// undocumented `AXStatusLabel` attribute off each dock item.
+/// Reads app badge labels (e.g. Mail's unread count) straight out of the Dock's
+/// Accessibility tree. There is no public API for another app's badge, so this
+/// walks the Dock process's AX elements and pulls the undocumented
+/// `AXStatusLabel` attribute off each dock item. Because the attribute and the
+/// Dock tree shape are undocumented they could change between macOS releases, so
+/// every read is best-effort: a miss just yields no badge rather than failing.
 ///
-/// Still behind an experimental flag because the attribute and the Dock tree
-/// shape are undocumented and could change between macOS releases.
-///
-/// The map is recomputed on demand (`refresh()` at reveal time, throttled) and
-/// read by the item views via `badge(forBundleID:)`.
+/// The map is recomputed on demand (`snapshot()` at reveal time, throttled via
+/// `shouldRefresh()`) and read by the item views via `badge(forBundleID:)`.
+/// Gated by the `showUnreadBadges` preference (on by default).
 @MainActor
 final class DockBadgeReader {
     static let shared = DockBadgeReader()
@@ -34,15 +34,29 @@ final class DockBadgeReader {
         lastRefresh = nil
     }
 
-    func refresh() {
-        if let lastRefresh, Date().timeIntervalSince(lastRefresh) < throttle { return }
-        badgesByBundleID = Self.readDockBadges()
+    /// Whether enough time has elapsed since the last scan to warrant another.
+    /// Back-to-back reveals shouldn't each hammer the Dock's AX server.
+    func shouldRefresh() -> Bool {
+        guard let lastRefresh else { return true }
+        return Date().timeIntervalSince(lastRefresh) >= throttle
+    }
+
+    /// Walk the Dock's AX tree and pull badge labels. Undocumented but read-only
+    /// AX traffic against another process — safe off the main thread, which is
+    /// where the reveal path runs it (each call is timeout-bounded). Pair with
+    /// `apply` on the main actor.
+    nonisolated static func snapshot() -> [String: String] {
+        readDockBadges()
+    }
+
+    func apply(_ badges: [String: String]) {
+        badgesByBundleID = badges
         lastRefresh = Date()
     }
 
-    private static let statusLabelAttribute = "AXStatusLabel"
+    nonisolated private static let statusLabelAttribute = "AXStatusLabel"
 
-    private static func readDockBadges() -> [String: String] {
+    nonisolated private static func readDockBadges() -> [String: String] {
         guard let dockPid = NSRunningApplication
             .runningApplications(withBundleIdentifier: "com.apple.dock")
             .first?.processIdentifier else { return [:] }
@@ -80,7 +94,7 @@ final class DockBadgeReader {
     }
 
     /// The Dock app's children include a single `AXList` holding the dock items.
-    private static func firstAXList(of element: AXUIElement) -> AXUIElement? {
+    nonisolated private static func firstAXList(of element: AXUIElement) -> AXUIElement? {
         for child in children(of: element) {
             if string(child, attribute: kAXRoleAttribute as CFString) == (kAXListRole as String) {
                 return child
@@ -89,14 +103,14 @@ final class DockBadgeReader {
         return nil
     }
 
-    private static func children(of element: AXUIElement) -> [AXUIElement] {
+    nonisolated private static func children(of element: AXUIElement) -> [AXUIElement] {
         var value: AnyObject?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
               let array = value as? [AXUIElement] else { return [] }
         return array
     }
 
-    private static func string(_ element: AXUIElement, attribute: CFString) -> String? {
+    nonisolated private static func string(_ element: AXUIElement, attribute: CFString) -> String? {
         var value: AnyObject?
         guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
         return value as? String

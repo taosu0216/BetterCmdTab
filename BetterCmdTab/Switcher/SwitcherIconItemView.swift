@@ -163,7 +163,7 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
 
         imageView.image = isDialog ? SystemSettingsIcon.image : IconCache.icon(for: row)
 
-        // Dock badge (experimental). Empty map when the feature is off.
+        // Dock badge. Empty map when the feature is off.
         let badge = (row.isPlaceholder || isDialog) ? nil : DockBadgeReader.shared.badge(forBundleID: row.bundleIdentifier)
         if let badge {
             badgeLabel.stringValue = badge

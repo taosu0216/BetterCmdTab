@@ -142,7 +142,10 @@ final class Preferences: ObservableObject {
         static let swipeCommitOnRelease = "Switcher.swipeCommitOnRelease"
         static let swipeSensitivity = "Switcher.swipeSensitivity"
         static let experimentalInstantSpaceSwitch = "Switcher.experimentalInstantSpaceSwitch"
-        static let experimentalUnreadBadges = "Switcher.experimentalUnreadBadges"
+        static let showUnreadBadges = "Switcher.showUnreadBadges"
+        /// Pre-graduation key (badges used to live behind the Experimental tab);
+        /// read once at launch to carry a user's earlier choice over to the new key.
+        static let legacyUnreadBadges = "Switcher.experimentalUnreadBadges"
     }
 
     @Published var switcherLayoutMode: SwitcherLayoutMode {
@@ -352,12 +355,12 @@ final class Preferences: ObservableObject {
         }
     }
 
-    /// Experimental: show app unread-badge counts read from the Dock via the
-    /// Accessibility API. Fragile and locale-dependent; off by default.
-    @Published var experimentalUnreadBadges: Bool {
+    /// Show app unread-badge counts (e.g. Mail's unread mail) on switcher rows,
+    /// read from the Dock via the Accessibility API. On by default.
+    @Published var showUnreadBadges: Bool {
         didSet {
-            guard oldValue != experimentalUnreadBadges else { return }
-            UserDefaults.standard.set(experimentalUnreadBadges, forKey: Keys.experimentalUnreadBadges)
+            guard oldValue != showUnreadBadges else { return }
+            UserDefaults.standard.set(showUnreadBadges, forKey: Keys.showUnreadBadges)
         }
     }
 
@@ -411,6 +414,15 @@ final class Preferences: ObservableObject {
         let sensitivity = defaults.object(forKey: Keys.swipeSensitivity) as? Int ?? Self.defaultSwipeSensitivity
         self.swipeSensitivity = Self.clampSwipeSensitivity(sensitivity)
         self.experimentalInstantSpaceSwitch = defaults.object(forKey: Keys.experimentalInstantSpaceSwitch) as? Bool ?? false
-        self.experimentalUnreadBadges = defaults.object(forKey: Keys.experimentalUnreadBadges) as? Bool ?? false
+        // Badges graduated out of the Experimental tab and now default on. Honor
+        // the new key if present, otherwise carry over a choice made under the
+        // old experimental key, otherwise default to on.
+        if let stored = defaults.object(forKey: Keys.showUnreadBadges) as? Bool {
+            self.showUnreadBadges = stored
+        } else if let legacy = defaults.object(forKey: Keys.legacyUnreadBadges) as? Bool {
+            self.showUnreadBadges = legacy
+        } else {
+            self.showUnreadBadges = true
+        }
     }
 }

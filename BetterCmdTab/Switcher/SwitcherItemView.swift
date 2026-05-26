@@ -174,7 +174,7 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
             fullscreenIcon.isHidden = !showFullscreen
             needsLayout = true
         }
-        // Dock badge (experimental); empty map when the feature is off.
+        // Dock badge; empty map when the feature is off.
         let badge = (row.isPlaceholder || isDialog) ? nil : DockBadgeReader.shared.badge(forBundleID: row.bundleIdentifier)
         let badgeChanged = badgePill.isHidden == (badge != nil) || badgeLabel.stringValue != (badge ?? "")
         badgeLabel.stringValue = badge ?? ""

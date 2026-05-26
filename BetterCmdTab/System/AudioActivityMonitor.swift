@@ -19,16 +19,21 @@ final class AudioActivityMonitor {
 
     func isPlaying(_ pid: pid_t) -> Bool { playingPids.contains(pid) }
 
-    func refresh() {
+    /// Compute the playing-pid set. Pure CoreAudio queries with no shared state,
+    /// so it is safe (and intended) to call off the main thread — the reveal
+    /// path runs this on a background queue and hands the result to `apply`.
+    nonisolated static func snapshot() -> Set<pid_t> {
         if #available(macOS 14.4, *) {
-            playingPids = Self.computePlayingPids()
+            return computePlayingPids()
         } else {
-            playingPids = []
+            return []
         }
     }
 
+    func apply(_ pids: Set<pid_t>) { playingPids = pids }
+
     @available(macOS 14.4, *)
-    private static func computePlayingPids() -> Set<pid_t> {
+    nonisolated private static func computePlayingPids() -> Set<pid_t> {
         let system = AudioObjectID(kAudioObjectSystemObject)
 
         var listAddr = AudioObjectPropertyAddress(
@@ -54,7 +59,7 @@ final class AudioActivityMonitor {
     }
 
     @available(macOS 14.4, *)
-    private static func isRunningOutput(_ object: AudioObjectID) -> Bool {
+    nonisolated private static func isRunningOutput(_ object: AudioObjectID) -> Bool {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioProcessPropertyIsRunningOutput,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -69,7 +74,7 @@ final class AudioActivityMonitor {
     }
 
     @available(macOS 14.4, *)
-    private static func pid(of object: AudioObjectID) -> pid_t? {
+    nonisolated private static func pid(of object: AudioObjectID) -> pid_t? {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioProcessPropertyPID,
             mScope: kAudioObjectPropertyScopeGlobal,

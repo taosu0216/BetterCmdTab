@@ -11,6 +11,7 @@ final class SwitcherSettingsViewController: NSViewController {
     private let minimizedSwitch = NSSwitch()
     private let hiddenSwitch = NSSwitch()
     private let windowlessSwitch = NSSwitch()
+    private let badgesSwitch = NSSwitch()
     private let recentlyClosedSwitch = NSSwitch()
     private let recentlyClosedLimitPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let recentlyClosedLimits: [Int] = [3, 5, 10, 15, 20]
@@ -54,6 +55,12 @@ final class SwitcherSettingsViewController: NSViewController {
             title: "Show apps without windows",
             subtitle: "Running apps with no open windows.",
             accessory: windowlessSwitch
+        ))
+        configureSwitch(badgesSwitch, action: #selector(toggleBadges(_:)))
+        contents.addContent(SettingsRowView(
+            title: "Show unread badges",
+            subtitle: "Show each app's Dock badge count (e.g. Mail's unread mail) on its row.",
+            accessory: badgesSwitch
         ))
         configureSwitch(recentlyClosedSwitch, action: #selector(toggleRecentlyClosed(_:)))
         contents.addContent(SettingsRowView(
@@ -135,6 +142,7 @@ final class SwitcherSettingsViewController: NSViewController {
         minimizedSwitch.state = prefs.showMinimizedWindows ? .on : .off
         hiddenSwitch.state = prefs.showHiddenApps ? .on : .off
         windowlessSwitch.state = prefs.showWindowlessApps ? .on : .off
+        badgesSwitch.state = prefs.showUnreadBadges ? .on : .off
         fuzzySwitch.state = prefs.fuzzySearchEnabled ? .on : .off
         launcherSwitch.state = prefs.searchIncludesLaunchableApps ? .on : .off
         recentlyClosedSwitch.state = prefs.showRecentlyClosed ? .on : .off
@@ -173,6 +181,10 @@ final class SwitcherSettingsViewController: NSViewController {
 
     @objc private func toggleWindowless(_ sender: NSSwitch) {
         Preferences.shared.showWindowlessApps = (sender.state == .on)
+    }
+
+    @objc private func toggleBadges(_ sender: NSSwitch) {
+        Preferences.shared.showUnreadBadges = (sender.state == .on)
     }
 
     @objc private func toggleFuzzy(_ sender: NSSwitch) {

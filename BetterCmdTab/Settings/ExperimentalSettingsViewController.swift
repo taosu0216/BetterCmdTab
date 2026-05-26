@@ -24,7 +24,6 @@ final class ExperimentalSettingsViewController: NSViewController {
         subtitle: "How far to slide to move one app. Higher means a shorter slide steps further."
     )
     private let instantSpaceSwitch = NSSwitch()
-    private let badgesSwitch = NSSwitch()
 
     override func loadView() {
         // Experimental section — off by default, clearly flagged as unstable.
@@ -59,12 +58,6 @@ final class ExperimentalSettingsViewController: NSViewController {
             title: "Switch Spaces without animation",
             subtitle: "Picking an app on another Space or in full screen jumps there instantly, with no slide animation. Applies to keyboard switching too.",
             accessory: instantSpaceSwitch
-        ))
-        configureSwitch(badgesSwitch, action: #selector(toggleBadges(_:)))
-        experimental.addContent(SettingsRowView(
-            title: "Show unread badges",
-            subtitle: "Reads badge counts from the Dock. May not match every app.",
-            accessory: badgesSwitch
         ))
 
         view = SettingsLayout.makeScrollingTab(sections: [experimental])
@@ -113,7 +106,6 @@ final class ExperimentalSettingsViewController: NSViewController {
         commitSwitch.state = prefs.swipeCommitOnRelease ? .on : .off
         applySensitivity(prefs.swipeSensitivity)
         instantSpaceSwitch.state = prefs.experimentalInstantSpaceSwitch ? .on : .off
-        badgesSwitch.state = prefs.experimentalUnreadBadges ? .on : .off
         setSwipeSubOptionsEnabled(prefs.experimentalSwipeTrigger)
     }
 
@@ -143,10 +135,6 @@ final class ExperimentalSettingsViewController: NSViewController {
 
     @objc private func toggleInstantSpace(_ sender: NSSwitch) {
         Preferences.shared.experimentalInstantSpaceSwitch = (sender.state == .on)
-    }
-
-    @objc private func toggleBadges(_ sender: NSSwitch) {
-        Preferences.shared.experimentalUnreadBadges = (sender.state == .on)
     }
 
     /// The reverse/commit/sensitivity controls only make sense while the swipe
