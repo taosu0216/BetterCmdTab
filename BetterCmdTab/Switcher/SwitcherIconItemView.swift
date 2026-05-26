@@ -18,6 +18,10 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
 
     private var metrics: SwitcherMetrics = .baseline
     private var accent: NSColor = .controlAccentColor
+    /// Cheap stable token for the current accent, recomputed only when the
+    /// accent changes — used as a memo-cache key instead of re-deriving
+    /// `accent.description` on every letter/symbol render.
+    private var accentKey: String = NSColor.controlAccentColor.description
 
     var isSelected: Bool = false {
         didSet {
@@ -132,7 +136,10 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         if metrics != self.metrics {
             applyMetrics(metrics)
         }
-        self.accent = accent
+        if self.accent != accent {
+            self.accent = accent
+            accentKey = accent.description
+        }
         currentLabel = label
         currentPrefixLength = prefixLength
         renderLetter()
@@ -172,8 +179,14 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
             badgePill.isHidden = true
         }
 
-        isSelected = selected
-        applySelection()
+        // Run `applySelection` exactly once: the `isSelected` setter already does
+        // so via `didSet` when the value flips, so call it explicitly only when
+        // the value is unchanged but other inputs still need re-applying.
+        if isSelected == selected {
+            applySelection()
+        } else {
+            isSelected = selected
+        }
         needsLayout = true
     }
 
@@ -212,10 +225,7 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         let result = NSMutableAttributedString()
         for (i, indicator) in indicators.enumerated() {
             if i > 0 { result.append(NSAttributedString(string: "\u{2009}")) } // thin space between glyphs
-            let color = indicator.tint(onAccentFill: false, accent: accent)
-            let cfg = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .semibold)
-                .applying(.init(paletteColors: [color]))
-            if let image = indicator.makeImage()?.withSymbolConfiguration(cfg) {
+            if let image = tintedSymbol(indicator, pointSize: font.pointSize) {
                 let attachment = NSTextAttachment()
                 attachment.image = image
                 attachment.bounds = CGRect(
@@ -255,7 +265,39 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
             ofSize: metrics.tileNameFontSize,
             weight: isSelected ? .semibold : .medium
         )
-        renderLetter()
+        // The jump letter doesn't depend on selection, so it is rendered once in
+        // `configure` rather than re-built on every selection move.
+    }
+
+    // MARK: - Memo caches
+
+    private struct LetterKey: Hashable {
+        let label: String
+        let prefixLen: Int
+        let fontSize: CGFloat
+        let accentKey: String
+    }
+    private static var letterCache = MemoCache<LetterKey, NSAttributedString>(capacity: 256)
+
+    private struct SymbolKey: Hashable {
+        let indicator: SwitcherIndicator
+        let pointSize: CGFloat
+        let accentKey: String
+    }
+    private static var symbolCache = MemoCache<SymbolKey, NSImage?>(capacity: 128)
+
+    /// Tinted status-glyph image for the secondary line, memoized: otherwise
+    /// `withSymbolConfiguration` re-renders the SF Symbol on every `configure`,
+    /// for every glyph on every tile.
+    private func tintedSymbol(_ indicator: SwitcherIndicator, pointSize: CGFloat) -> NSImage? {
+        let key = SymbolKey(indicator: indicator, pointSize: pointSize, accentKey: accentKey)
+        let accentColor = accent
+        return Self.symbolCache.value(for: key) {
+            let color = indicator.tint(onAccentFill: false, accent: accentColor)
+            let cfg = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+                .applying(.init(paletteColors: [color]))
+            return indicator.makeImage()?.withSymbolConfiguration(cfg)
+        }
     }
 
     private func renderLetter() {
@@ -264,20 +306,27 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
             letterLabel.attributedStringValue = NSAttributedString(string: "")
             return
         }
-        let highlightLen = min(currentPrefixLength, labelStr.count)
-        let font = NSFont.monospacedSystemFont(ofSize: metrics.tileLetterFontSize, weight: .bold)
-        let para = NSMutableParagraphStyle()
-        para.alignment = .center
-        let attr = NSMutableAttributedString(string: labelStr, attributes: [
-            .font: font,
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: para,
-        ])
-        if highlightLen > 0 {
-            attr.addAttribute(.foregroundColor, value: accent, range: NSRange(location: 0, length: highlightLen))
+        let key = LetterKey(
+            label: labelStr,
+            prefixLen: min(currentPrefixLength, labelStr.count),
+            fontSize: metrics.tileLetterFontSize,
+            accentKey: accentKey
+        )
+        let accentColor = accent
+        letterLabel.attributedStringValue = Self.letterCache.value(for: key) {
+            let font = NSFont.monospacedSystemFont(ofSize: key.fontSize, weight: .bold)
+            let para = NSMutableParagraphStyle()
+            para.alignment = .center
+            let attr = NSMutableAttributedString(string: key.label, attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: para,
+            ])
+            if key.prefixLen > 0 {
+                attr.addAttribute(.foregroundColor, value: accentColor, range: NSRange(location: 0, length: key.prefixLen))
+            }
+            return attr
         }
-        letterLabel.attributedStringValue = attr
-        needsLayout = true
     }
 
     override func layout() {
@@ -337,5 +386,32 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         let titleH = ceil(titleLabel.font?.pointSize ?? m.tileTitleFontSize) + 2
         nameLabel.frame = NSRect(x: 0, y: labelAreaH - nameH, width: w, height: nameH)
         titleLabel.frame = NSRect(x: 0, y: labelAreaH - nameH - titleH, width: w, height: titleH)
+    }
+}
+
+/// Tiny capped LRU backing the grid tile's render memo caches (attributed
+/// letters and tinted status symbols), mirroring the list view's inline cache.
+private struct MemoCache<Key: Hashable, Value> {
+    private var storage: [Key: Value] = [:]
+    private var order: [Key] = []
+    private let capacity: Int
+
+    init(capacity: Int) { self.capacity = capacity }
+
+    mutating func value(for key: Key, build: () -> Value) -> Value {
+        if let hit = storage[key] {
+            if let i = order.firstIndex(of: key) {
+                order.remove(at: i)
+                order.append(key)
+            }
+            return hit
+        }
+        let made = build()
+        storage[key] = made
+        order.append(key)
+        if order.count > capacity {
+            storage.removeValue(forKey: order.removeFirst())
+        }
+        return made
     }
 }

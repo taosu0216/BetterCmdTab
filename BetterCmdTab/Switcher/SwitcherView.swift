@@ -75,6 +75,17 @@ final class SwitcherView: NSView {
     func configure(rows: [SwitcherRow], labels: [String], selectedIndex: Int, metrics: SwitcherMetrics, highlightPrefix: String = "", searchActive: Bool = false, searchQuery: String = "") {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // Item frames depend only on the row count, the metrics, and whether the
+        // search strip is showing — not on row content or selection. When none
+        // of those changed (a reorder, a glyph flip, an audio/badge repaint, a
+        // selection move funnelled through here) the cached layout is still
+        // valid, so skip invalidating it and forcing a full relayout + panel
+        // resize. The item views still reconfigure below and relayout themselves
+        // if their own content changed.
+        let geometryChanged =
+            rows.count != self.rows.count ||
+            metrics != self.metrics ||
+            searchActive != self.searchActive
         self.rows = rows
         self.labels = labels
         self.highlightPrefix = highlightPrefix
@@ -95,9 +106,11 @@ final class SwitcherView: NSView {
             itemViews.removeAll()
         }
         rebuildItemPool()
-        cachedLayout = nil
-        invalidateIntrinsicContentSize()
-        needsLayout = true
+        if geometryChanged {
+            cachedLayout = nil
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
         applySelection()
         CATransaction.commit()
     }

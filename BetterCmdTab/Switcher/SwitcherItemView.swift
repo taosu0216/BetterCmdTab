@@ -118,6 +118,11 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
     private var currentLabel: String = ""
     private var currentPrefixLength: Int = 0
     private var accent: NSColor = .controlAccentColor
+    /// `accent.description` is a freshly-allocated, formatted string; computing
+    /// it on every `renderLetter` (i.e. for every row, every configure) just to
+    /// key the shared letter cache was pure churn. Cache it once per accent
+    /// change — accents change rarely (a settings tweak), letters render constantly.
+    private var accentKey: String = NSColor.controlAccentColor.description
 
     func configure(with row: SwitcherRow, label: String, prefixLength: Int, selected: Bool, metrics: SwitcherMetrics, accent: NSColor) {
         if metrics != self.metrics {
@@ -125,11 +130,11 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
         }
         if self.accent != accent {
             self.accent = accent
+            accentKey = accent.description
             highlight.layer?.backgroundColor = accent.cgColor
         }
         currentLabel = label
         currentPrefixLength = prefixLength
-        renderLetter()
         // System permission/dialog rows (e.g. the Accessibility alert) show just
         // the window title with the System Settings icon — no status icons.
         let isDialog = row.isSystemDialog
@@ -180,8 +185,15 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
         badgeLabel.stringValue = badge ?? ""
         badgePill.isHidden = (badge == nil)
         if badgeChanged { needsLayout = true }
-        isSelected = selected
-        applySelection()
+        // `applySelection` re-tints every glyph and renders the letter, so run
+        // it exactly once: the `isSelected` setter already does so via `didSet`
+        // when the value flips, so only call it explicitly when the value is
+        // unchanged but other inputs (accent, metrics, label) still need it.
+        if isSelected == selected {
+            applySelection()
+        } else {
+            isSelected = selected
+        }
     }
 
     private func applyMetrics(_ metrics: SwitcherMetrics) {
@@ -269,7 +281,7 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
             prefixLen: currentPrefixLength,
             fontSize: metrics.letterFontSize,
             selected: isSelected,
-            accentKey: accent.description
+            accentKey: accentKey
         )
         letterLabel.attributedStringValue = Self.memoizedLetter(key, accent: accent)
     }
