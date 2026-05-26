@@ -378,21 +378,35 @@ final class SettingsRadioGroupView: NSView {
 
     private var buttonsByIdentifier: [String: NSButton] = [:]
 
-    init(options: [Option], selected: String? = nil) {
+    init(options: [Option], selected: String? = nil, orientation: NSUserInterfaceLayoutOrientation = .vertical) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        let horizontal = (orientation == .horizontal)
+        stack.orientation = orientation
+        if horizontal {
+            // Side-by-side options: center them on a single baseline and let the
+            // group hug its content at the leading edge. Per-option subtitles are
+            // dropped here (they have no room in a row) — context belongs in the
+            // surrounding block's description instead.
+            stack.alignment = .centerY
+            stack.spacing = 18
+        }
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            horizontal
+                ? stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)
+                : stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         for option in options {
-            let row = makeOptionRow(option)
+            let row = makeOptionRow(option, showsSubtitle: !horizontal, hugsWidth: horizontal)
             stack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            if !horizontal {
+                row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            }
         }
 
         if let selected {
@@ -413,16 +427,16 @@ final class SettingsRadioGroupView: NSView {
         buttonsByIdentifier.first(where: { $0.value.state == .on })?.key
     }
 
-    private func makeOptionRow(_ option: Option) -> NSView {
+    private func makeOptionRow(_ option: Option, showsSubtitle: Bool = true, hugsWidth: Bool = false) -> NSView {
         let button = NSButton(radioButtonWithTitle: option.title, target: self, action: #selector(radioChanged(_:)))
         button.font = .systemFont(ofSize: 13)
         button.identifier = NSUserInterfaceItemIdentifier(option.identifier)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.setContentHuggingPriority(hugsWidth ? .required : .defaultLow, for: .horizontal)
         buttonsByIdentifier[option.identifier] = button
 
         let normalizedSubtitle = option.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasSubtitle = !(normalizedSubtitle?.isEmpty ?? true)
+        let hasSubtitle = showsSubtitle && !(normalizedSubtitle?.isEmpty ?? true)
 
         let container = FlippedView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -431,7 +445,12 @@ final class SettingsRadioGroupView: NSView {
         var constraints: [NSLayoutConstraint] = [
             button.topAnchor.constraint(equalTo: container.topAnchor),
             button.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            button.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            // When hugging (horizontal row) the container must size to the
+            // button, so pin trailing exactly; otherwise leave slack for the
+            // full-width vertical rows.
+            hugsWidth
+                ? button.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+                : button.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
         ]
 
         if hasSubtitle {

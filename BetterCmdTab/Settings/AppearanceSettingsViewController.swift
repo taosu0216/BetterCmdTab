@@ -4,8 +4,8 @@ import Combine
 @MainActor
 final class AppearanceSettingsViewController: NSViewController {
 
-    private let layoutPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var layoutRadio: SettingsRadioGroupView!
+    private var sizeRadio: SettingsRadioGroupView!
     private let gridPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let accentPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let delaySlider = NSSlider()
@@ -22,11 +22,11 @@ final class AppearanceSettingsViewController: NSViewController {
     override func loadView() {
         let section = SettingsSectionView(header: "Switcher")
 
-        configurePopup(layoutPopup, titles: layoutModes.map(\.displayName), action: #selector(layoutChanged))
-        section.addContent(SettingsRowView(title: "Layout", accessory: layoutPopup))
+        layoutRadio = makeLayoutRadio()
+        section.addContent(SettingsRowView(title: "Layout", accessory: layoutRadio))
 
-        configurePopup(sizePopup, titles: panelSizes.map(\.displayName), action: #selector(sizeChanged))
-        section.addContent(SettingsRowView(title: "Size", accessory: sizePopup))
+        sizeRadio = makeSizeRadio()
+        section.addContent(SettingsRowView(title: "Size", accessory: sizeRadio))
 
         configurePopup(gridPopup, titles: gridValues.map { $0 == 0 ? "Automatic" : "\($0)" }, action: #selector(gridChanged))
         section.addContent(SettingsRowView(
@@ -94,6 +94,30 @@ final class AppearanceSettingsViewController: NSViewController {
         return image
     }
 
+    private func makeLayoutRadio() -> SettingsRadioGroupView {
+        let options = layoutModes.map { mode in
+            SettingsRadioGroupView.Option(identifier: mode.rawValue, title: mode.displayName)
+        }
+        let group = SettingsRadioGroupView(options: options, orientation: .horizontal)
+        group.onSelectionChange = { id in
+            guard let mode = SwitcherLayoutMode(rawValue: id) else { return }
+            Preferences.shared.switcherLayoutMode = mode
+        }
+        return group
+    }
+
+    private func makeSizeRadio() -> SettingsRadioGroupView {
+        let options = panelSizes.map { size in
+            SettingsRadioGroupView.Option(identifier: size.rawValue, title: size.displayName)
+        }
+        let group = SettingsRadioGroupView(options: options, orientation: .horizontal)
+        group.onSelectionChange = { id in
+            guard let size = PanelSize(rawValue: id) else { return }
+            Preferences.shared.panelSize = size
+        }
+        return group
+    }
+
     private func configurePopup(_ popup: NSPopUpButton, titles: [String], action: Selector) {
         popup.controlSize = .small
         popup.translatesAutoresizingMaskIntoConstraints = false
@@ -146,11 +170,11 @@ final class AppearanceSettingsViewController: NSViewController {
     }
 
     private func selectLayout(_ mode: SwitcherLayoutMode) {
-        if let i = layoutModes.firstIndex(of: mode) { layoutPopup.selectItem(at: i) }
+        layoutRadio.select(identifier: mode.rawValue)
     }
 
     private func selectSize(_ size: PanelSize) {
-        if let i = panelSizes.firstIndex(of: size) { sizePopup.selectItem(at: i) }
+        sizeRadio.select(identifier: size.rawValue)
     }
 
     private func selectGrid(_ value: Int) {
@@ -164,14 +188,6 @@ final class AppearanceSettingsViewController: NSViewController {
 
     private func selectAccent(_ accent: SwitcherAccent) {
         if let i = accents.firstIndex(of: accent) { accentPopup.selectItem(at: i) }
-    }
-
-    @objc private func layoutChanged() {
-        Preferences.shared.switcherLayoutMode = layoutModes[layoutPopup.indexOfSelectedItem]
-    }
-
-    @objc private func sizeChanged() {
-        Preferences.shared.panelSize = panelSizes[sizePopup.indexOfSelectedItem]
     }
 
     @objc private func gridChanged() {
