@@ -29,15 +29,23 @@ final class AppCatalogCache {
     private let snapshotQueue = DispatchQueue(label: "BetterCmdTab.snapshot", qos: .userInteractive, attributes: .concurrent)
     private let axInstallQueue = DispatchQueue(label: "BetterCmdTab.axInstall", qos: .utility, attributes: .concurrent)
 
-    /// AX notifications subscribed per running app. Together these cover every
-    /// state change that affects the switcher rows: window add/remove,
-    /// minimize/restore, title change, focus change, hide/unhide.
+    /// AX notifications subscribed per running app. These cover the state
+    /// changes that affect the switcher's *row set* (and their ordering):
+    /// window add/remove, minimize/restore, focus change, hide/unhide.
+    ///
+    /// `kAXTitleChangedNotification` is deliberately omitted: it's by far the
+    /// noisiest AX notification (browsers, terminals, editors fire it
+    /// constantly), yet every reveal already re-snapshots all titles via
+    /// `SwitcherController`'s `cache.scheduleFullRefresh()`. Keeping titles live
+    /// while the panel is hidden bought almost nothing but a steady background
+    /// `bumpApp` → window-scan churn; dropping it removes that idle CPU cost. A
+    /// reveal's first (synchronous, cached) paint may briefly show a slightly
+    /// stale title until the async refresh lands — self-correcting in ms.
     nonisolated private static let axNotifications: [String] = [
         kAXWindowCreatedNotification as String,
         kAXUIElementDestroyedNotification as String,
         kAXWindowMiniaturizedNotification as String,
         kAXWindowDeminiaturizedNotification as String,
-        kAXTitleChangedNotification as String,
         kAXFocusedWindowChangedNotification as String,
         kAXApplicationHiddenNotification as String,
         kAXApplicationShownNotification as String,
@@ -324,7 +332,10 @@ final class AppCatalogCache {
             pidBumpPending.insert(pid)
             return
         }
-        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }) else {
+        // Direct pid lookup instead of scanning the whole running-app list on
+        // every AX-notification-driven bump; `NSRunningApplication(processIdentifier:)`
+        // is O(1) and always reflects the current process table.
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
             entries.removeValue(forKey: pid)
             return
         }
