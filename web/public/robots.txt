@@ -1,0 +1,5 @@
+# https://bettercmdtab.app
+User-agent: *
+Allow: /
+
+Sitemap: https://bettercmdtab.app/sitemap.xml

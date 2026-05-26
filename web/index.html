@@ -2,15 +2,158 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>BetterCmdTab — a better Cmd+Tab window switcher for macOS</title>
+    <meta
+      name="description"
+      content="A fast, native Cmd+Tab replacement for macOS: grid & list app switcher, fuzzy search & launch, and window cycling. Free, open-source, zero telemetry. macOS 13+."
+    />
+    <meta
+      name="keywords"
+      content="macOS window switcher, Cmd+Tab replacement, app switcher macOS, alt-tab for mac, macOS app launcher, AltTab alternative, BetterCmdTab"
+    />
+    <meta name="author" content="rokartur" />
+    <meta name="application-name" content="BetterCmdTab" />
+    <link rel="canonical" href="https://bettercmdtab.app/" />
+
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- Reveal the prerendered content when JS is disabled (motion ships its
+         initial hidden variant inline; this only applies with no JS). -->
+    <noscript>
+      <style>
+        [style*="opacity:0"] {
+          opacity: 1 !important;
+          transform: none !important;
+        }
+      </style>
+    </noscript>
+
+    <!-- Icons & PWA -->
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BetterCmdTab — The Cmd+Tab macOS deserves</title>
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="BetterCmdTab" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="BetterCmdTab" />
+    <meta property="og:title" content="BetterCmdTab — a better Cmd+Tab window switcher for macOS" />
     <meta
-      name="description"
-      content="A fast, native window switcher for macOS. Free forever, zero telemetry."
+      property="og:description"
+      content="A fast, native Cmd+Tab replacement for macOS: grid & list app switcher, fuzzy search & launch, and window cycling. Free, open-source, zero telemetry."
     />
+    <meta property="og:url" content="https://bettercmdtab.app/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content="https://bettercmdtab.app/og.png" />
+    <meta property="og:image:secure_url" content="https://bettercmdtab.app/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="BetterCmdTab — a native window switcher and app launcher for macOS"
+    />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="BetterCmdTab — a better Cmd+Tab window switcher for macOS"
+    />
+    <meta
+      name="twitter:description"
+      content="A fast, native Cmd+Tab replacement for macOS: grid & list app switcher, fuzzy search & launch, and window cycling. Free, open-source, zero telemetry."
+    />
+    <meta name="twitter:image" content="https://bettercmdtab.app/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="BetterCmdTab — a native window switcher and app launcher for macOS"
+    />
+
+    <!-- Perf hints for the runtime GitHub release lookup -->
+    <link rel="preconnect" href="https://api.github.com" crossorigin />
+    <link rel="dns-prefetch" href="https://api.github.com" />
+    <link rel="dns-prefetch" href="https://objects.githubusercontent.com" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://bettercmdtab.app/#app",
+            "name": "BetterCmdTab",
+            "alternateName": "Better Cmd Tab",
+            "description": "A fast, native Cmd+Tab replacement for macOS: a window switcher and app launcher with grid & list layouts, fuzzy search, window cycling, and zero telemetry.",
+            "url": "https://bettercmdtab.app/",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "macOS 13.0 or later (Apple Silicon & Intel)",
+            "softwareRequirements": "macOS 13.0+",
+            "downloadUrl": "https://github.com/rokartur/BetterCmdTab/releases/latest",
+            "installUrl": "https://github.com/rokartur/BetterCmdTab/releases/latest",
+            "softwareHelp": "https://github.com/rokartur/BetterCmdTab",
+            "license": "https://github.com/rokartur/BetterCmdTab/blob/main/LICENSE",
+            "image": "https://bettercmdtab.app/og.png",
+            "screenshot": [
+              "https://bettercmdtab.app/screenshots/list.jpg",
+              "https://bettercmdtab.app/screenshots/grid.jpg"
+            ],
+            "featureList": [
+              "Classic list and grid-of-icons layouts",
+              "Letter-prefix jump to any app",
+              "Fuzzy search and launch any installed app",
+              "Cycle windows of the front app with Cmd+`",
+              "Reopen recently closed apps",
+              "Pin favorites and filter the rest",
+              "Inline quit, close, minimize, hide",
+              "Unread Dock badge counts in the switcher",
+              "Audio-playing app indicator",
+              "Instant Spaces switching",
+              "Liquid Glass material on macOS 26",
+              "Multi-monitor aware",
+              "Trackpad gestures and haptics",
+              "Menu-bar agent — no Dock icon, no Electron"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            },
+            "author": { "@id": "https://bettercmdtab.app/#author" },
+            "publisher": { "@id": "https://bettercmdtab.app/#author" },
+            "isAccessibleForFree": true
+          },
+          {
+            "@type": "Person",
+            "@id": "https://bettercmdtab.app/#author",
+            "name": "rokartur",
+            "url": "https://github.com/rokartur"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://bettercmdtab.app/#website",
+            "name": "BetterCmdTab",
+            "url": "https://bettercmdtab.app/",
+            "inLanguage": "en",
+            "description": "A fast, native Cmd+Tab window switcher and app launcher for macOS.",
+            "publisher": { "@id": "https://bettercmdtab.app/#author" }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

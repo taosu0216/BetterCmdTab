@@ -115,6 +115,10 @@ function useLatestRelease(): Release {
 
 function Shots() {
   const [open, setOpen] = useState<number | null>(null);
+  // The lightbox portals into document.body, which doesn't exist during the
+  // build-time prerender. Gate it on mount so SSR stays document-free.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (open === null) return;
@@ -158,32 +162,33 @@ function Shots() {
         ))}
       </motion.section>
 
-      {createPortal(
-        <AnimatePresence>
-          {active && (
-            <motion.div
-              className="lightbox"
-              onClick={() => setOpen(null)}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: EASE }}
-            >
-              <motion.img
-                src={active[0]}
-                alt={active[1]}
-                className="lightbox-img"
-                initial={{ opacity: 0, scale: 0.94 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.26, ease: EASE }}
-              />
-              <span className="lightbox-hint">Esc · click to close</span>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body,
-      )}
+      {mounted &&
+        createPortal(
+          <AnimatePresence>
+            {active && (
+              <motion.div
+                className="lightbox"
+                onClick={() => setOpen(null)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: EASE }}
+              >
+                <motion.img
+                  src={active[0]}
+                  alt={active[1]}
+                  className="lightbox-img"
+                  initial={{ opacity: 0, scale: 0.94 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.96 }}
+                  transition={{ duration: 0.26, ease: EASE }}
+                />
+                <span className="lightbox-hint">Esc · click to close</span>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
     </>
   );
 }
@@ -263,7 +268,7 @@ function useScramble(text: string, active: boolean, enabled: boolean): string {
 function DownloadCta({ href }: { href: string }) {
   const reduce = useReducedMotion();
   const [active, setActive] = useState(false);
-  const label = useScramble("Download .dmg", active, !reduce);
+  const label = useScramble("Download.dmg", active, !reduce);
 
   return (
     <motion.a
@@ -325,7 +330,7 @@ function DownloadCta({ href }: { href: string }) {
   );
 }
 
-function Home() {
+export function Home() {
   const { version, dmgUrl } = useLatestRelease();
 
   return (
