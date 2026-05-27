@@ -231,6 +231,7 @@ final class SettingsRowView: NSView {
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.maximumNumberOfLines = 0
+        subtitleLabel.isSelectable = false
         subtitleLabel.isHidden = !hasSubtitle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -457,6 +458,7 @@ final class SettingsRadioGroupView: NSView {
             let subtitle = NSTextField(wrappingLabelWithString: normalizedSubtitle ?? "")
             subtitle.font = .systemFont(ofSize: 11)
             subtitle.textColor = .secondaryLabelColor
+            subtitle.isSelectable = false
             subtitle.maximumNumberOfLines = 0
             subtitle.translatesAutoresizingMaskIntoConstraints = false
             subtitle.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -515,6 +517,7 @@ final class SettingsLabeledBlockView: NSView {
             let descLabel = NSTextField(wrappingLabelWithString: description)
             descLabel.font = .systemFont(ofSize: 11)
             descLabel.textColor = .secondaryLabelColor
+            descLabel.isSelectable = false
             descLabel.maximumNumberOfLines = 0
             descLabel.translatesAutoresizingMaskIntoConstraints = false
             descLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
