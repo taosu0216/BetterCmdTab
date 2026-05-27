@@ -17,6 +17,7 @@ final class SwitcherSettingsViewController: NSViewController {
     private let recentlyClosedLimits: [Int] = [3, 5, 10, 15, 20]
 
     // Search
+    private let letterHintsSwitch = NSSwitch()
     private let fuzzySwitch = NSSwitch()
     private let launcherSwitch = NSSwitch()
     private let searchModePopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -84,6 +85,12 @@ final class SwitcherSettingsViewController: NSViewController {
 
         // Search section — type-to-filter behavior.
         let search = SettingsSectionView(header: "Search")
+        configureSwitch(letterHintsSwitch, action: #selector(toggleLetterHints(_:)))
+        search.addContent(SettingsRowView(
+            title: "Letter hints",
+            subtitle: "Show a letter on each window and jump to it by typing that letter.",
+            accessory: letterHintsSwitch
+        ))
         configureSwitch(fuzzySwitch, action: #selector(toggleFuzzy(_:)))
         search.addContent(SettingsRowView(
             title: "Type-to-filter search",
@@ -143,6 +150,7 @@ final class SwitcherSettingsViewController: NSViewController {
         hiddenSwitch.state = prefs.showHiddenApps ? .on : .off
         windowlessSwitch.state = prefs.showWindowlessApps ? .on : .off
         badgesSwitch.state = prefs.showUnreadBadges ? .on : .off
+        letterHintsSwitch.state = prefs.letterHintsEnabled ? .on : .off
         fuzzySwitch.state = prefs.fuzzySearchEnabled ? .on : .off
         launcherSwitch.state = prefs.searchIncludesLaunchableApps ? .on : .off
         recentlyClosedSwitch.state = prefs.showRecentlyClosed ? .on : .off
@@ -185,6 +193,10 @@ final class SwitcherSettingsViewController: NSViewController {
 
     @objc private func toggleBadges(_ sender: NSSwitch) {
         Preferences.shared.showUnreadBadges = (sender.state == .on)
+    }
+
+    @objc private func toggleLetterHints(_ sender: NSSwitch) {
+        Preferences.shared.letterHintsEnabled = (sender.state == .on)
     }
 
     @objc private func toggleFuzzy(_ sender: NSSwitch) {

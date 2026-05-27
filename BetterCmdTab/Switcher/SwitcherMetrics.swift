@@ -68,17 +68,20 @@ struct SwitcherMetrics: Equatable {
 
     static let baseline = SwitcherMetrics.forScale(1.0, layoutMode: .list)
 
-    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list, userScale: CGFloat = 1.0) -> SwitcherMetrics {
+    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list, userScale: CGFloat = 1.0, letterHints: Bool = true) -> SwitcherMetrics {
         let width = screen?.frame.width ?? referenceWidth
         let raw = width / referenceWidth
         // Screen-adaptive clamp first (keep base size on small displays, cap on
         // huge ones), then fold in the user's size preference as a free multiplier
         // so "Small" can shrink below the 1.0 floor.
         let clamped = max(1.0, min(1.8, raw)) * userScale
-        return forScale(clamped, layoutMode: layoutMode)
+        return forScale(clamped, layoutMode: layoutMode, letterHints: letterHints)
     }
 
-    static func forScale(_ scale: CGFloat, layoutMode: SwitcherLayoutMode = .list) -> SwitcherMetrics {
+    /// `letterHints == false` collapses the space the jump-letter occupies — the
+    /// top strip on tiles and the left column in the list — so the panel reflows
+    /// tighter when the user turned letter hints off.
+    static func forScale(_ scale: CGFloat, layoutMode: SwitcherLayoutMode = .list, letterHints: Bool = true) -> SwitcherMetrics {
         let outerPadding: CGFloat
         let cornerRadius: CGFloat
         switch layoutMode {
@@ -105,13 +108,13 @@ struct SwitcherMetrics: Equatable {
             highlightCornerRadius: round(baseHighlightCornerRadius * scale),
             highlightInset: round(baseHighlightInset * scale),
             labelHeight: round(baseLabelHeight * scale),
-            letterColumnWidth: round(baseLetterColumnWidth * scale),
+            letterColumnWidth: letterHints ? round(baseLetterColumnWidth * scale) : 0,
             letterFontSize: baseLetterFontSize * scale,
             tileSize: round(baseTileSize * scale),
             tileIconSize: round(baseTileIconSize * scale),
             tileGap: round(baseTileGap * scale),
             tileLabelArea: round(baseTileLabelArea * scale),
-            tileLetterArea: round(baseTileLetterArea * scale),
+            tileLetterArea: letterHints ? round(baseTileLetterArea * scale) : 0,
             tileNameFontSize: baseTileNameFontSize * scale,
             tileTitleFontSize: baseTileTitleFontSize * scale,
             tileLetterFontSize: baseTileLetterFontSize * scale,

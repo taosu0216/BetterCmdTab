@@ -37,6 +37,10 @@ final class SwitcherController: SwitcherViewDelegate {
     private var baseFoldedValid = false
     private var rows: [SwitcherRow] = []
     private var labels: [String] = []
+    /// Hint letters to render on tiles — empty when the user disabled letter
+    /// hints, so no per-window letter is drawn. The internal `labels` array is
+    /// kept populated for search reordering regardless.
+    private var displayLabels: [String] { Preferences.shared.letterHintsEnabled ? labels : [] }
     private var index: Int = 0
     private var revealTimer: Timer?
     private var currentMetrics: SwitcherMetrics = .baseline
@@ -169,7 +173,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // `baseRows`, not `rows`: in fuzzy-search mode an empty filtered result
         // is still a visible panel that must track screen changes.
         guard phase == .visible, !baseRows.isEmpty else { return }
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled)
         refreshDisplay()
     }
 
@@ -412,6 +416,7 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     private func handleLetter(_ ch: Character) {
+        guard Preferences.shared.letterHintsEnabled else { return }
         guard phase == .visible, !rows.isEmpty, !labels.isEmpty else { return }
 
         let attempt = letterBuffer + String(ch)
@@ -691,8 +696,8 @@ final class SwitcherController: SwitcherViewDelegate {
         }
         guard !rows.isEmpty else { cancel(); return }
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale)
-        view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled)
+        view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
         cache.setPanelVisible(true)
@@ -778,8 +783,8 @@ final class SwitcherController: SwitcherViewDelegate {
         let delta = windowsOnlyPrimedDelta
         index = count > 0 ? ((delta % count) + count) % count : 0
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale)
-        view.configure(rows: rows, labels: labels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled)
+        view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
         cache.setPanelVisible(true)
@@ -1329,7 +1334,7 @@ final class SwitcherController: SwitcherViewDelegate {
 
         view.configure(
             rows: rows,
-            labels: labels,
+            labels: displayLabels,
             selectedIndex: index,
             metrics: currentMetrics,
             highlightPrefix: searchActive ? "" : letterBuffer,

@@ -129,6 +129,7 @@ final class Preferences: ObservableObject {
         static let showHiddenApps = "Switcher.showHiddenApps"
         static let showWindowlessApps = "Switcher.showWindowlessApps"
         static let fuzzySearchEnabled = "Switcher.fuzzySearchEnabled"
+        static let letterHintsEnabled = "Switcher.letterHintsEnabled"
         static let searchDismissMode = "Switcher.searchDismissMode"
         static let searchIncludesLaunchableApps = "Switcher.searchIncludesLaunchableApps"
         static let showRecentlyClosed = "Switcher.showRecentlyClosed"
@@ -229,6 +230,16 @@ final class Preferences: ObservableObject {
         didSet {
             guard oldValue != fuzzySearchEnabled else { return }
             UserDefaults.standard.set(fuzzySearchEnabled, forKey: Keys.fuzzySearchEnabled)
+        }
+    }
+
+    /// Show per-window letter hints and let a typed letter jump to and select
+    /// that window. Default on. When off, the hint letters are hidden and typing
+    /// a letter does nothing (so letters stay free for type-to-filter search).
+    @Published var letterHintsEnabled: Bool {
+        didSet {
+            guard oldValue != letterHintsEnabled else { return }
+            UserDefaults.standard.set(letterHintsEnabled, forKey: Keys.letterHintsEnabled)
         }
     }
 
@@ -392,6 +403,7 @@ final class Preferences: ObservableObject {
         self.showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
         self.showWindowlessApps = defaults.object(forKey: Keys.showWindowlessApps) as? Bool ?? true
         self.fuzzySearchEnabled = defaults.object(forKey: Keys.fuzzySearchEnabled) as? Bool ?? true
+        self.letterHintsEnabled = defaults.object(forKey: Keys.letterHintsEnabled) as? Bool ?? true
 
         let dismissRaw = defaults.string(forKey: Keys.searchDismissMode)
         self.searchDismissMode = dismissRaw.flatMap(SearchDismissMode.init(rawValue:)) ?? .holdModifier
