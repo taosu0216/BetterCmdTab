@@ -15,7 +15,11 @@ final class SettingsWindowPresenter {
     private init() {}
 
     func show() {
-        if controller == nil {
+        // Rebuild when there's no controller, or a stale one whose window was
+        // already released/closed (e.g. if a deferred teardown hasn't run yet).
+        // Guarantees `show()` always surfaces a live window.
+        if controller == nil || controller?.window == nil {
+            teardownAfterClose()
             createController()
         }
         controller?.show()
