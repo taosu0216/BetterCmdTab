@@ -38,22 +38,24 @@ macOS's built-in ⌘+Tab switches apps, not windows. Third-party alternatives ei
 
 ## Features
 
-- **Two layouts** — classic vertical list, or a grid of app icons with spatial arrow-key navigation.
-- **Letter-prefix jump** — type the first letters of an app's name to jump straight to it.
-- **Fuzzy search & app launch** — press `/` to open the search bar: fuzzy-filter running apps, launch any *installed* app via an indexed catalog, or reopen one you recently closed.
-- **Reopen recently closed apps** — apps you recently quit stay in the switcher so you can relaunch them.
-- **Window-level switching** — `` ⌘+ ` `` cycles the windows of the frontmost app. Works on every app, including fullscreen.
-- **Pin & filter** — pin the apps you reach for most and filter the rest out of the list.
-- **Quick actions on the highlighted row** — quit, close window, minimize, hide, all without leaving the switcher.
-- **Unread Dock badges** — surfaces the badge counts macOS shows on the Dock, in the switcher (on by default).
-- **Audio indicator** — flags apps that are currently playing sound.
-- **Instant Space switching** — committing a selection on another Space switches with no animation.
-- **Liquid Glass backdrop on macOS 26**, NSVisualEffectView fallback below.
-- **Multi-monitor aware** — opens on the screen with the cursor; repositions when displays connect, disconnect, or change resolution.
-- **Trackpad & feedback** — a three-finger swipe can trigger the switcher, with optional haptic and sound feedback on commit.
-- **Configurable & tunable** — set your own switcher hotkey, and adjust its size, scale, and layout in Settings.
-- **Shift+tap** to step backwards without holding Tab.
-- **Menu bar agent** — no dock icon, no main window, no Electron. The menu bar icon itself can be hidden.
+- **Three layouts** — classic list, grid of icons, or live window previews.
+- **Letter-prefix jump** — type a name to jump to it.
+- **Search & launch** — press `/` to fuzzy-find, or launch any installed app.
+- **Window switching** — `` ⌘+ ` `` cycles windows of the front app.
+- **Tap or hold** — tap to switch instantly, hold to open the switcher.
+- **Scroll to switch** — spin the mouse wheel to move through apps.
+- **Recently closed** — reopen an app you just quit.
+- **Minimized & hidden** — include minimized windows, hidden and windowless apps.
+- **Pin & filter** — keep favorites up top, hide the rest.
+- **Quick actions** — quit, close, minimize, hide inline.
+- **Unread badges** — Dock badge counts, in the switcher.
+- **Audio indicator** — flags apps playing sound.
+- **Instant Spaces** — switch Spaces with no animation.
+- **Liquid Glass** — system material on macOS 26.
+- **Accent color** — tint the selection to match your system.
+- **Multi-monitor** — opens on the screen under the cursor.
+- **Trackpad & haptics** — three-finger swipe, optional feedback.
+- **Configurable** — custom hotkey, size, scale, layout.
 
 ## Install
 

@@ -39,17 +39,20 @@ const features: Array<[string, string]> = [
   ["Letter-prefix jump", "type a name to jump to it"],
   ["Search & launch", "press / to fuzzy-find, or launch any installed app"],
   ["Window switching", "Cmd+` cycles windows of the front app"],
+  ["Tap or hold", "tap to switch instantly, hold to open the switcher"],
+  ["Scroll to switch", "spin the mouse wheel to move through apps"],
   ["Recently closed", "reopen an app you just quit"],
+  ["Minimized & hidden", "include minimized windows, hidden and windowless apps"],
   ["Pin & filter", "keep favorites up top, hide the rest"],
   ["Quick actions", "quit, close, minimize, hide inline"],
   ["Unread badges", "Dock badge counts, in the switcher"],
   ["Audio indicator", "flags apps playing sound"],
   ["Instant Spaces", "switch Spaces with no animation"],
   ["Liquid Glass", "system material on macOS 26"],
+  ["Accent color", "tint the selection to match your system"],
   ["Multi-monitor", "opens on the screen under the cursor"],
   ["Trackpad & haptics", "three-finger swipe, optional feedback"],
   ["Configurable", "custom hotkey, size, scale, layout"],
-  ["Menu bar agent", "no dock icon, no Electron, hideable icon"],
 ];
 
 const shortcuts: Array<[string, string]> = [
