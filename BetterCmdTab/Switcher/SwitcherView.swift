@@ -112,7 +112,28 @@ final class SwitcherView: NSView {
             needsLayout = true
         }
         applySelection()
+        updatePreviewWiring()
         CATransaction.commit()
+    }
+
+    /// In window-preview mode, register the thumbnail-ready hook so a late
+    /// capture repaints just its tile, and prompt for Screen Recording the first
+    /// time previews are shown. Outside preview mode the hook is cleared so
+    /// captures left over from an earlier preview reveal can't fire into list /
+    /// grid tiles.
+    private func updatePreviewWiring() {
+        guard metrics.layoutMode == .windowPreview else {
+            WindowThumbnailCache.shared.onReady = nil
+            return
+        }
+        WindowThumbnailCache.shared.ensurePermission()
+        WindowThumbnailCache.shared.onReady = { [weak self] wid in
+            guard let self else { return }
+            for view in self.itemViews {
+                guard let preview = view as? SwitcherPreviewItemView, preview.windowID == wid else { continue }
+                preview.setThumbnail(WindowThumbnailCache.shared.image(for: wid), for: wid)
+            }
+        }
     }
 
     func setSelectedIndex(_ index: Int) {
@@ -248,6 +269,8 @@ final class SwitcherView: NSView {
             return SwitcherItemView(frame: .zero)
         case .gridView:
             return SwitcherIconItemView(frame: .zero)
+        case .windowPreview:
+            return SwitcherPreviewItemView(frame: .zero)
         }
     }
 
@@ -340,6 +363,8 @@ final class SwitcherView: NSView {
             layout = computeListLayout()
         case .gridView:
             layout = computeIconDockLayout()
+        case .windowPreview:
+            layout = computePreviewLayout()
         }
         cachedLayout = layout
         return layout
@@ -459,6 +484,73 @@ final class SwitcherView: NSView {
             for colIdx in 0..<tilesInRow {
                 let x = rowStartX + CGFloat(colIdx) * (tile + gap)
                 frames.append(NSRect(x: x, y: y, width: tile, height: itemH))
+            }
+        }
+
+        let total = NSSize(
+            width: listWidth + outerPadding * 2,
+            height: listHeight + outerPadding * 2
+        )
+
+        return ListLayout(
+            frames: frames,
+            listSize: NSSize(width: listWidth, height: listHeight),
+            total: total,
+            rowsPerCol: rowsCount,
+            cols: cols
+        )
+    }
+
+    /// alt-tab–style preview grid: uniform thumbnail tiles wrapping into rows,
+    /// width-driven (same packing as the icon-dock grid, just with the larger
+    /// preview tile). The user "Grid columns" cap applies here too.
+    private func computePreviewLayout() -> ListLayout {
+        let tileW = metrics.previewTileWidth
+        let itemH = metrics.previewLetterArea + metrics.previewThumbHeight + metrics.previewLabelArea
+        let gap = metrics.previewGap
+        let outerPadding = metrics.outerPadding
+        let count = max(rows.count, 1)
+
+        let screen = layoutScreenFrame()
+        let maxListWidth = screen.width * maxScreenWidthFraction - outerPadding * 2
+        let maxListHeight = screen.height * maxScreenHeightFraction - outerPadding * 2
+
+        let perTileStride = tileW + gap
+        let tilesPerRow = max(1, Int(floor((maxListWidth + gap) / perTileStride)))
+        let userCap = Preferences.shared.gridMaxColumns
+        let cols: Int
+        if userCap > 0 {
+            // Explicit column count — honor it even if the rows then overflow.
+            cols = min(count, tilesPerRow, userCap)
+        } else {
+            // Preview tiles are tall, so width-only wrapping overflows the screen
+            // height well before the width. Add columns as needed to keep the
+            // rows within the visible height, never exceeding what the width can
+            // hold (extreme window counts still overflow — same as Grid view).
+            let maxRows = max(1, Int(floor((maxListHeight + gap) / (itemH + gap))))
+            let neededByHeight = Int(ceil(Double(count) / Double(maxRows)))
+            cols = max(1, min(tilesPerRow, max(min(count, tilesPerRow), neededByHeight)))
+        }
+        let rowsCount = max(1, Int(ceil(Double(count) / Double(cols))))
+
+        let listWidth = CGFloat(cols) * tileW + CGFloat(max(0, cols - 1)) * gap
+        let listHeight = CGFloat(rowsCount) * itemH + CGFloat(max(0, rowsCount - 1)) * gap
+
+        var frames: [NSRect] = []
+        frames.reserveCapacity(rows.count)
+
+        // Center each (possibly partial) row's tiles horizontally, matching the
+        // icon-dock grid so the final row doesn't pin left.
+        for rowIdx in 0..<rowsCount {
+            let firstInRow = rowIdx * cols
+            let lastInRow = min(firstInRow + cols, rows.count) - 1
+            let tilesInRow = lastInRow - firstInRow + 1
+            let rowContentWidth = CGFloat(tilesInRow) * tileW + CGFloat(max(0, tilesInRow - 1)) * gap
+            let rowStartX = (listWidth - rowContentWidth) / 2
+            let y = listHeight - CGFloat(rowIdx + 1) * itemH - CGFloat(rowIdx) * gap
+            for colIdx in 0..<tilesInRow {
+                let x = rowStartX + CGFloat(colIdx) * (tileW + gap)
+                frames.append(NSRect(x: x, y: y, width: tileW, height: itemH))
             }
         }
 

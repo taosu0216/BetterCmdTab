@@ -32,6 +32,18 @@ struct SwitcherMetrics: Equatable {
     let tileSelectionInset: CGFloat
     let tileSelectionCornerRadius: CGFloat
 
+    // Window-preview (alt-tab) layout metrics
+    let previewTileWidth: CGFloat
+    let previewThumbHeight: CGFloat
+    let previewGap: CGFloat
+    let previewLabelArea: CGFloat
+    let previewLetterArea: CGFloat
+    let previewIconSize: CGFloat
+    let previewNameFontSize: CGFloat
+    let previewThumbCornerRadius: CGFloat
+    let previewSelectionInset: CGFloat
+    let previewSelectionCornerRadius: CGFloat
+
     static let baseRowHeight: CGFloat = 28
     static let baseRowWidth: CGFloat = 720
     static let baseIconSize: CGFloat = 18
@@ -66,6 +78,20 @@ struct SwitcherMetrics: Equatable {
     static let baseTileOuterPadding: CGFloat = 14
     static let baseTileCornerRadius: CGFloat = 24
 
+    // Window-preview base metrics. A uniform tile: jump-letter strip on top, a
+    // 16:10 thumbnail area in the middle (the live capture is aspect-fit and
+    // letterboxed inside it), and a label row (small app icon + window title)
+    // below. Reuses the grid tile's outer padding / panel corner radius.
+    static let basePreviewTileWidth: CGFloat = 208
+    static let basePreviewThumbHeight: CGFloat = 130
+    static let basePreviewGap: CGFloat = 12
+    static let basePreviewLabelArea: CGFloat = 24
+    static let basePreviewIconSize: CGFloat = 18
+    static let basePreviewNameFontSize: CGFloat = 11
+    static let basePreviewThumbCornerRadius: CGFloat = 8
+    static let basePreviewSelectionInset: CGFloat = 3
+    static let basePreviewSelectionCornerRadius: CGFloat = 12
+
     static let baseline = SwitcherMetrics.forScale(1.0, layoutMode: .list)
 
     static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list, userScale: CGFloat = 1.0, letterHints: Bool = true) -> SwitcherMetrics {
@@ -88,7 +114,7 @@ struct SwitcherMetrics: Equatable {
         case .list:
             outerPadding = round(baseOuterPadding * scale)
             cornerRadius = round(baseCornerRadius * scale)
-        case .gridView:
+        case .gridView, .windowPreview:
             outerPadding = round(baseTileOuterPadding * scale)
             cornerRadius = round(baseTileCornerRadius * scale)
         }
@@ -121,7 +147,17 @@ struct SwitcherMetrics: Equatable {
             tileLetterBadgeSize: round(baseTileLetterBadgeSize * scale),
             tileStatusIconSize: round(baseTileStatusIconSize * scale),
             tileSelectionInset: round(baseTileSelectionInset * scale),
-            tileSelectionCornerRadius: round(baseTileSelectionCornerRadius * scale)
+            tileSelectionCornerRadius: round(baseTileSelectionCornerRadius * scale),
+            previewTileWidth: round(basePreviewTileWidth * scale),
+            previewThumbHeight: round(basePreviewThumbHeight * scale),
+            previewGap: round(basePreviewGap * scale),
+            previewLabelArea: round(basePreviewLabelArea * scale),
+            previewLetterArea: letterHints ? round(baseTileLetterArea * scale) : 0,
+            previewIconSize: round(basePreviewIconSize * scale),
+            previewNameFontSize: basePreviewNameFontSize * scale,
+            previewThumbCornerRadius: round(basePreviewThumbCornerRadius * scale),
+            previewSelectionInset: round(basePreviewSelectionInset * scale),
+            previewSelectionCornerRadius: round(basePreviewSelectionCornerRadius * scale)
         )
     }
 }

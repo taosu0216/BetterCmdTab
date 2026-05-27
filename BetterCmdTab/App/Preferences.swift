@@ -5,11 +5,25 @@ import Foundation
 enum SwitcherLayoutMode: String, CaseIterable {
     case list
     case gridView = "iconDock"
+    /// alt-tab-style view: a wrapping grid of live window thumbnails. Needs the
+    /// Screen Recording permission to capture previews; falls back to the app
+    /// icon per tile when capture is unavailable.
+    case windowPreview
 
     var displayName: String {
         switch self {
         case .list: return "List"
         case .gridView: return "Grid View"
+        case .windowPreview: return "Previews"
+        }
+    }
+
+    /// True for the 2-D tile layouts (grid + previews), which share the same
+    /// spatial up/down/left/right navigation, as opposed to the linear list.
+    var isGridLike: Bool {
+        switch self {
+        case .gridView, .windowPreview: return true
+        case .list: return false
         }
     }
 }

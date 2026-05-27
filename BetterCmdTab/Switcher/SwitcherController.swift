@@ -587,7 +587,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// icon-dock it falls back to linear wrap.
     private func advanceVerticalOrLinear(by delta: Int) {
         if phase == .visible,
-           currentMetrics.layoutMode == .gridView,
+           currentMetrics.layoutMode.isGridLike,
            view.rowsPerColumn > 1 {
             if let newIndex = view.neighboringRowIndex(from: index, direction: delta, wrap: true) {
                 index = newIndex

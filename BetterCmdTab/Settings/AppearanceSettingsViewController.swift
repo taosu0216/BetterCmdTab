@@ -14,7 +14,7 @@ final class AppearanceSettingsViewController: NSViewController {
     private var cancellables = Set<AnyCancellable>()
 
     // Ordered option models backing the popups (index ↔ value).
-    private let layoutModes: [SwitcherLayoutMode] = [.gridView, .list]
+    private let layoutModes: [SwitcherLayoutMode] = [.gridView, .list, .windowPreview]
     private let panelSizes: [PanelSize] = PanelSize.allCases
     private let gridValues: [Int] = [0, 2, 3, 4, 5, 6] // 0 = automatic
     private let accents: [SwitcherAccent] = SwitcherAccent.allCases
@@ -31,7 +31,7 @@ final class AppearanceSettingsViewController: NSViewController {
         configurePopup(gridPopup, titles: gridValues.map { $0 == 0 ? "Automatic" : "\($0)" }, action: #selector(gridChanged))
         section.addContent(SettingsRowView(
             title: "Grid columns",
-            subtitle: "Applies to the Grid layout only.",
+            subtitle: "Applies to the Grid and Previews layouts.",
             accessory: gridPopup
         ))
 
