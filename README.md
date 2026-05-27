@@ -27,8 +27,9 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 <br />
 <br />
 
-<img src="web/public/screenshots/list.jpg" width="49%" alt="BetterCmdTab classic vertical list layout" />
+<img src="web/public/screenshots/preview.jpg" width="49%" alt="BetterCmdTab grid of app icons layout" />
 <img src="web/public/screenshots/grid.jpg" width="49%" alt="BetterCmdTab grid of app icons layout" />
+<img src="web/public/screenshots/list.jpg" width="49%" alt="BetterCmdTab classic vertical list layout" />
 
 </div>
 
