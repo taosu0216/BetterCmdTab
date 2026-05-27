@@ -1,4 +1,5 @@
 import AppKit
+import BetterShortcuts
 import Testing
 @testable import BetterCmdTab
 
@@ -31,17 +32,17 @@ struct PreferencesEnumTests {
     }
 }
 
-@Suite("KeyboardShortcuts integration")
-struct KeyboardShortcutsIntegrationTests {
+@Suite("BetterShortcuts integration")
+struct BetterShortcutsIntegrationTests {
 
     @MainActor
     @Test("switcher Names default to Command + Tab / Command + backtick")
     func defaultShortcuts() {
-        let apps = KeyboardShortcuts.Name.switchApps.defaultShortcut
+        let apps = BetterShortcuts.Name.switchApps.defaultShortcut
         #expect(apps?.carbonKeyCode == 48) // Tab
         #expect(apps?.modifiers.contains(.command) == true)
 
-        let windows = KeyboardShortcuts.Name.switchWindows.defaultShortcut
+        let windows = BetterShortcuts.Name.switchWindows.defaultShortcut
         #expect(windows?.carbonKeyCode == 50) // `
         #expect(windows?.modifiers.contains(.command) == true)
     }
@@ -49,8 +50,8 @@ struct KeyboardShortcutsIntegrationTests {
     @MainActor
     @Test("allCases lists exactly the two switcher triggers")
     func allCases() {
-        #expect(KeyboardShortcuts.Name.allCases.count == 2)
-        #expect(KeyboardShortcuts.Name.allCases.contains(.switchApps))
-        #expect(KeyboardShortcuts.Name.allCases.contains(.switchWindows))
+        #expect(BetterShortcuts.Name.allCases.count == 2)
+        #expect(BetterShortcuts.Name.allCases.contains(.switchApps))
+        #expect(BetterShortcuts.Name.allCases.contains(.switchWindows))
     }
 }
