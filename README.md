@@ -46,6 +46,8 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 - **Minimized & hidden** — include minimized windows, hidden and windowless apps.
 - **Pin & filter** — keep favorites up top, hide the rest.
 - **Quick actions** — quit, close, minimize, maximize, hide inline.
+- **Force quit** — `⌘+⌥+Q` SIGKILLs the highlighted app for when graceful Quit hangs.
+- **Tab drill-in** — press `\` on a row whose window has tabs to pick a specific tab (Safari, Chrome, Arc, Brave, Edge, Vivaldi, Opera, Dia, Finder, Terminal, iTerm).
 - **Move windows** — send the highlighted window to the next display.
 - **App hotkeys** — assign a shortcut to focus or launch a chosen app.
 - **Unread badges** — Dock badge counts, in the switcher.
@@ -91,9 +93,11 @@ While Cmd is held:
 | `Cmd + <letter(s)>` | Jump to app starting with that letter |
 | `Cmd + /` | Toggle the fuzzy search bar (filter running + launch installed apps) |
 | `Cmd + Q` | Quit the highlighted app |
+| `Cmd + Option + Q` | Force-quit the highlighted app (SIGKILL — for hung apps) |
 | `Cmd + W` | Close the highlighted window |
 | `Cmd + M` | Minimize the highlighted window |
 | `Cmd + H` | Hide / unhide the highlighted app |
+| `\` | Drill into the highlighted row's tab group (browsers, Finder, Terminal) |
 | `Cmd + Option + ←/→/↑/↓` | Move the highlighted window to the adjacent display |
 | `Cmd + Esc` | Cancel switcher without activating anything |
 | `Release Cmd` | Activate the highlighted row |
