@@ -9,8 +9,10 @@ import BetterSettings
 /// Tab identifiers shared between the catalog and the content controllers.
 enum SettingsTabID {
     static let general = "general"
+    static let shortcuts = "shortcuts"
     static let switcher = "switcher"
     static let appearance = "appearance"
+    static let privacy = "privacy"
     static let experimental = "experimental"
     static let about = "about"
 }
@@ -20,12 +22,14 @@ enum SettingsTabID {
 enum SettingsAnchor {
     // General
     static let startup = "general.startup"
-    static let shortcuts = "general.shortcuts"
-    static let directActivation = "general.directActivation"
     static let feedback = "general.feedback"
-    static let privacy = "general.privacy"
-    static let permissions = "general.permissions"
     static let updates = "general.updates"
+    // Shortcuts
+    static let switching = "shortcuts.switching"
+    static let directActivation = "shortcuts.directActivation"
+    // Privacy
+    static let screenSharing = "privacy.screenSharing"
+    static let permissions = "privacy.permissions"
     // Switcher
     static let contents = "switcher.contents"
     static let search = "switcher.search"
@@ -100,8 +104,10 @@ enum SettingsCatalog {
             contentProvider: { tab, _ in
                 switch tab.id {
                 case SettingsTabID.general:      return GeneralSettingsViewController()
+                case SettingsTabID.shortcuts:    return ShortcutsSettingsViewController()
                 case SettingsTabID.switcher:     return SwitcherSettingsViewController()
                 case SettingsTabID.appearance:   return AppearanceSettingsViewController()
+                case SettingsTabID.privacy:      return PrivacySettingsViewController()
                 case SettingsTabID.experimental: return ExperimentalSettingsViewController()
                 default:                         return AboutSettingsViewController()
                 }
@@ -114,26 +120,37 @@ enum SettingsCatalog {
     // MARK: - Tabs
 
     static let tabs: [SettingsTab] = [
+        // Palette + icon style mirror BetterAudio: muted macOS System Settings
+        // gradient badges (gray, blue, purple, pink, red, orange; white badge for
+        // About) with white SF Symbols.
         SettingsTab(
-            id: SettingsTabID.general, title: "General", icon: "gearshape.fill",
-            iconStyle: style(0x8E8E93, 0x5E5E63, scale: 0.85)
+            id: SettingsTabID.general, title: "General", icon: "gear",
+            iconStyle: style(0x898A8F, 0x67686E, scale: 1.0)
+        ),
+        SettingsTab(
+            id: SettingsTabID.shortcuts, title: "Shortcuts", icon: "keyboard.fill",
+            iconStyle: style(0x40BCFF, 0x0060FF, scale: 0.9)
         ),
         // ⌘ glyph — the app *is* a Command-Tab switcher.
         SettingsTab(
             id: SettingsTabID.switcher, title: "Switcher", icon: "command",
-            iconStyle: style(0x0A84FF, 0x0A56D6, scale: 0.82, mode: .monochrome)
+            iconStyle: style(0xB272FF, 0x6228FF, scale: 0.95)
         ),
         SettingsTab(
             id: SettingsTabID.appearance, title: "Appearance", icon: "paintbrush.fill",
-            iconStyle: style(0xFF6CAB, 0xD81E7B, scale: 0.74)
+            iconStyle: style(0xFF6991, 0xD41E5A, scale: 0.9)
+        ),
+        SettingsTab(
+            id: SettingsTabID.privacy, title: "Privacy", icon: "lock.fill",
+            iconStyle: style(0xFF5E62, 0xFF0016, scale: 0.9)
         ),
         SettingsTab(
             id: SettingsTabID.experimental, title: "Experimental", icon: "flask.fill",
-            iconStyle: style(0xFFC24B, 0xFF8A00, scale: 0.74)
+            iconStyle: style(0xFFA846, 0xFF6F00, scale: 0.9)
         ),
         SettingsTab(
             id: SettingsTabID.about, title: "About", icon: "info.circle.fill",
-            iconStyle: style(0x6E6CF0, 0x3F3AD6, scale: 0.72)
+            iconStyle: style(0xFFFFFF, 0xECECF0, scale: 1.0, symbol: 0x1C1C1E)
         ),
     ]
 
@@ -141,9 +158,11 @@ enum SettingsCatalog {
         _ start: UInt32,
         _ end: UInt32,
         scale: CGFloat,
+        symbol: UInt32? = nil,
         mode: SettingsTabIconStyle.SymbolColorMode = .hierarchical
     ) -> SettingsTabIconStyle {
         SettingsTabIconStyle(
+            symbolColor: symbol.map { SettingsColor(hex: $0) } ?? .white,
             gradientStart: SettingsColor(hex: start),
             gradientEnd: SettingsColor(hex: end),
             symbolScale: scale,
@@ -159,30 +178,32 @@ enum SettingsCatalog {
              "Launch at login", ["startup", "boot", "open at login", "autostart"]),
         item(SearchID.hideMenuBar, .general, SettingsAnchor.startup, "General", "Startup",
              "Hide menu bar icon", ["menu bar", "status item", "hide icon"]),
-        // General · Shortcuts
-        item(SearchID.switchApps, .general, SettingsAnchor.shortcuts, "General", "Shortcuts",
-             "Switch apps", ["shortcut", "hotkey", "cmd tab", "command tab", "trigger"]),
-        item(SearchID.switchWindows, .general, SettingsAnchor.shortcuts, "General", "Shortcuts",
-             "Switch windows", ["shortcut", "hotkey", "window cycle"]),
         // General · Feedback
         item(SearchID.haptic, .general, SettingsAnchor.feedback, "General", "Feedback",
              "Haptic feedback on switch", ["haptic", "vibration", "force touch", "trackpad"]),
         item(SearchID.sound, .general, SettingsAnchor.feedback, "General", "Feedback",
              "Sound on switch", ["sound", "click", "audio"]),
-        // General · Privacy
-        item(SearchID.hideFromScreenSharing, .general, SettingsAnchor.privacy, "General", "Privacy",
-             "Don't look at my windows", ["privacy", "screen sharing", "screen recording", "hide", "zoom", "meet", "teams", "screencapture"]),
-        // General · Permissions
-        item(SearchID.accessibility, .general, SettingsAnchor.permissions, "General", "Permissions",
-             "Accessibility access", ["accessibility", "permission", "grant", "trusted"]),
         // General · Updates
         item(SearchID.updateInterval, .general, SettingsAnchor.updates, "General", "Updates",
              "Check for updates", ["update", "upgrade", "interval", "cadence"]),
         item(SearchID.beta, .general, SettingsAnchor.updates, "General", "Updates",
              "Include beta releases", ["beta", "prerelease", "pre-release", "channel"]),
-        // General · Direct activation
-        item(SearchID.directActivation, .general, SettingsAnchor.directActivation, "General", "Direct activation",
+
+        // Shortcuts · Switching
+        item(SearchID.switchApps, .shortcuts, SettingsAnchor.switching, "Shortcuts", "Switching",
+             "Switch apps", ["shortcut", "hotkey", "cmd tab", "command tab", "trigger"]),
+        item(SearchID.switchWindows, .shortcuts, SettingsAnchor.switching, "Shortcuts", "Switching",
+             "Switch windows", ["shortcut", "hotkey", "window cycle"]),
+        // Shortcuts · Direct activation
+        item(SearchID.directActivation, .shortcuts, SettingsAnchor.directActivation, "Shortcuts", "Direct activation",
              "Direct activation hotkeys", ["direct", "hotkey", "shortcut", "activate", "focus app", "jump to app"]),
+
+        // Privacy · Screen sharing
+        item(SearchID.hideFromScreenSharing, .privacy, SettingsAnchor.screenSharing, "Privacy", "Screen sharing",
+             "Don't look at my windows", ["privacy", "screen sharing", "screen recording", "hide", "zoom", "meet", "teams", "screencapture"]),
+        // Privacy · Permissions
+        item(SearchID.accessibility, .privacy, SettingsAnchor.permissions, "Privacy", "Permissions",
+             "Accessibility access", ["accessibility", "permission", "grant", "trusted"]),
 
         // Switcher · Contents
         item(SearchID.showMinimized, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
@@ -276,13 +297,15 @@ enum SettingsCatalog {
     }
 
     private enum TabRef {
-        case general, switcher, appearance, experimental
+        case general, shortcuts, switcher, appearance, privacy, experimental
 
         var id: String {
             switch self {
             case .general: return SettingsTabID.general
+            case .shortcuts: return SettingsTabID.shortcuts
             case .switcher: return SettingsTabID.switcher
             case .appearance: return SettingsTabID.appearance
+            case .privacy: return SettingsTabID.privacy
             case .experimental: return SettingsTabID.experimental
             }
         }
