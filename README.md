@@ -111,6 +111,10 @@ The `Cmd + Tab` activation hotkey is configurable in Settings; you can also trig
 
 Liquid Glass rendering requires macOS 26. On 13–15 you get NSVisualEffectView with `.hudWindow` material, which looks similar enough.
 
+## Known issues
+
+- **Secure Event Input (password fields).** When an app has a focused secure-text field — for example KeePassXC's database-unlock screen — macOS routes keystrokes straight to that app and withholds them from every event monitor (Apple [TN2150](https://developer.apple.com/library/archive/technotes/tn2150/_index.html)). BetterCmdTab still opens on ⌘Tab in this state (it registers a system hot key that survives Secure Input and suppresses the native switcher), and tapping Tab / ⇧Tab to step plus releasing ⌘ to commit all work. In-panel keys that rely on the event tap — arrow navigation, fuzzy search (`/`), letter-jump, and the W/M/H/Q actions — do **not** respond while the other app holds Secure Input; release ⌘ to commit, or click a tile with the mouse.
+
 ## Privacy
 
 BetterCmdTab does not collect, transmit, or store any data. There is no telemetry, no crash reporting service, no analytics SDK, and no account. The only network requests it makes are to `api.github.com` and `github.com` when checking for updates, and only when you ask it to.

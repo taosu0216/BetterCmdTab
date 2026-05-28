@@ -62,6 +62,42 @@ enum PrivateAPI {
     private static let getProcessForPIDFn: (@convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus)? =
         sym("GetProcessForPID", in: RTLD_DEFAULT_HANDLE)
 
+    // MARK: - SkyLight: native symbolic-hotkey suppression (⌘Tab)
+
+    // (hotKeyID, isEnabled) -> CGError. Toggles a macOS native symbolic hotkey
+    // such as ⌘Tab at the WindowServer level.
+    private static let setSymbolicHotKeyEnabledFn: (@convention(c) (Int32, Bool) -> CGError)? =
+        sym("CGSSetSymbolicHotKeyEnabled", in: skyLight)
+
+    /// macOS symbolic-hotkey ids we override. Discoverable via
+    /// `CGSGetSymbolicHotKeyValue` over the first few hundred ids; these three
+    /// back ⌘Tab (next app), ⌘⇧Tab (previous app) and ⌘` (next window in app).
+    enum SymbolicHotKey: Int32 {
+        case commandTab = 1
+        case commandShiftTab = 2
+        case commandKeyAboveTab = 6
+    }
+
+    /// Enable/disable a macOS native symbolic hotkey. Disabling ⌘Tab at the
+    /// WindowServer is the *only* way to keep the native switcher from firing
+    /// while another app holds Secure Event Input: in that state a `CGEventTap`
+    /// never receives the Tab `keyDown` (TN2150), so consuming the event — the
+    /// way we normally suppress the native switcher — can't run. Returns false
+    /// when the private symbol is unavailable, so callers degrade to tap-only.
+    ///
+    /// Note: the effect **persists after the app quits**, so whatever is
+    /// disabled here must be re-enabled on teardown.
+    @discardableResult
+    static func setSymbolicHotKey(_ key: SymbolicHotKey, enabled: Bool) -> Bool {
+        guard let fn = setSymbolicHotKeyEnabledFn else { return false }
+        return fn(key.rawValue, enabled) == .success
+    }
+
+    /// Bulk variant of `setSymbolicHotKey` for a set of native hotkeys.
+    static func setNativeCommandTabEnabled(_ enabled: Bool, _ keys: [SymbolicHotKey]) {
+        for key in keys { setSymbolicHotKey(key, enabled: enabled) }
+    }
+
     // MARK: - SkyLight: no-animation Space switch
 
     // `CGSConnectionID` is a plain `int`.
@@ -133,6 +169,7 @@ enum PrivateAPI {
         if copySpacesForWindowsFn == nil { missing.append("CGSCopySpacesForWindows") }
         if copyManagedDisplaySpacesFn == nil { missing.append("CGSCopyManagedDisplaySpaces") }
         if getActiveSpaceFn == nil { missing.append("CGSGetActiveSpace") }
+        if setSymbolicHotKeyEnabledFn == nil { missing.append("CGSSetSymbolicHotKeyEnabled") }
         return missing
     }
 

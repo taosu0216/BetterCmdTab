@@ -1,6 +1,7 @@
 import AppKit
 @preconcurrency import ApplicationServices
 import BetterShortcuts
+import Carbon.HIToolbox
 import Combine
 import os
 
@@ -13,6 +14,13 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     private let hotkey = HotkeyTap()
+    /// Secure-input-immune fallback trigger (see CarbonHotkeyTrigger). Opens and
+    /// steps the switcher via a Carbon hot key when the tap is bypassed because
+    /// another app holds Secure Event Input (issue #7).
+    private let carbonTrigger = CarbonHotkeyTrigger()
+    /// Native symbolic hotkeys (⌘Tab etc.) we've currently disabled at the
+    /// WindowServer, so teardown / a remap can re-enable exactly those.
+    private var disabledSymbolicKeys: [PrivateAPI.SymbolicHotKey] = []
     private let swipeTrigger = SwipeTrigger()
     private let spaceSwipeSuppressor = SpaceSwipeSuppressor()
     private let mru = MRUTracker()
@@ -237,6 +245,8 @@ final class SwitcherController: SwitcherViewDelegate {
             guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
             NSApp.postEvent(nsEvent, atStart: true)
         }
+        // The Carbon fallback drives the same handler as the tap.
+        carbonTrigger.onEvent = { [weak self] event in self?.handle(event) }
         pushHotkeyConfig()
         // The BetterShortcuts recorders persist the user's trigger choices and
         // post this notification on change — re-derive the tap config live.
@@ -361,6 +371,62 @@ final class SwitcherController: SwitcherViewDelegate {
             windowModifier: window.modifier,
             windowKey: window.key
         ))
+        syncNativeHotkeyOverride()
+    }
+
+    /// Keep the secure-input fallback in sync with the configured trigger:
+    /// suppress the matching native symbolic hotkeys and (re)register the Carbon
+    /// hot keys. Re-derived whenever `pushHotkeyConfig` runs (boot + remaps).
+    private func syncNativeHotkeyOverride() {
+        let app = Self.carbonTrigger(for: .switchApps, defaultKey: 48)
+        let window = Self.carbonTrigger(for: .switchWindows, defaultKey: 50)
+
+        // Decide which native symbolic hotkeys to suppress. Only when the trigger
+        // is exactly the native chord (⌘Tab / ⌘`) — a remap to anything else
+        // leaves macOS's own shortcut intact.
+        var toDisable: [PrivateAPI.SymbolicHotKey] = []
+        if app.isCommandOnly && app.keyCode == 48 {        // ⌘Tab → next/prev app
+            toDisable.append(.commandTab)
+            toDisable.append(.commandShiftTab)
+        }
+        if window.isCommandOnly && window.keyCode == 50 {  // ⌘` → next window in app
+            toDisable.append(.commandKeyAboveTab)
+        }
+
+        // Disable the symbolic hotkeys *before* registering: macOS reserves ⌘Tab
+        // while its symbolic hotkey is enabled, so RegisterEventHotKey would fail.
+        // Re-enable anything we previously disabled that's no longer in the set.
+        if toDisable != disabledSymbolicKeys {
+            let reEnable = disabledSymbolicKeys.filter { !toDisable.contains($0) }
+            PrivateAPI.setNativeCommandTabEnabled(true, reEnable)
+            PrivateAPI.setNativeCommandTabEnabled(false, toDisable)
+            disabledSymbolicKeys = toDisable
+        }
+
+        // Register forward + Shift-reverse chords for app switching, and the same
+        // for window switching when its chord differs (a duplicate chord would be
+        // rejected by RegisterEventHotKey).
+        let shift = UInt32(shiftKey)
+        var chords: [CarbonHotkeyTrigger.Chord] = [
+            .init(keyCode: app.keyCode, modifiers: app.carbonModifiers, event: .nextApp),
+            .init(keyCode: app.keyCode, modifiers: app.carbonModifiers | shift, event: .prevApp),
+        ]
+        if window.keyCode != app.keyCode || window.carbonModifiers != app.carbonModifiers {
+            chords.append(.init(keyCode: window.keyCode, modifiers: window.carbonModifiers, event: .nextWindow))
+            chords.append(.init(keyCode: window.keyCode, modifiers: window.carbonModifiers | shift, event: .prevWindow))
+        }
+        carbonTrigger.update(chords)
+    }
+
+    /// Tear down OS-level state that outlives the process: re-enable the native
+    /// symbolic hotkeys we suppressed (the disable persists after quit) and drop
+    /// the Carbon hot keys. Call from `applicationWillTerminate`.
+    func shutdown() {
+        carbonTrigger.uninstall()
+        if !disabledSymbolicKeys.isEmpty {
+            PrivateAPI.setNativeCommandTabEnabled(true, disabledSymbolicKeys)
+            disabledSymbolicKeys = []
+        }
     }
 
     /// Decompose a recorded shortcut into a held modifier mask + tap keycode for
@@ -381,6 +447,40 @@ final class SwitcherController: SwitcherViewDelegate {
         if modifiers.contains(.control) { flags.insert(.maskControl) }
         if flags.isEmpty { flags = .maskCommand }
         return (flags, Int64(shortcut.carbonKeyCode))
+    }
+
+    /// Carbon view of a configured trigger, for `RegisterEventHotKey` and native
+    /// symbolic-hotkey matching. Mirrors `hotkeyTrigger(for:defaultKey:)` but in
+    /// Carbon terms: a Carbon keycode + Carbon modifier mask, plus whether the
+    /// hold modifier is exactly Command (used to decide symbolic-hotkey overlap).
+    private struct CarbonTrigger {
+        let keyCode: UInt32
+        let carbonModifiers: UInt32
+        let isCommandOnly: Bool
+    }
+
+    private static func carbonTrigger(
+        for name: BetterShortcuts.Name,
+        defaultKey: UInt32
+    ) -> CarbonTrigger {
+        guard let shortcut = BetterShortcuts.getShortcut(for: name) else {
+            return CarbonTrigger(keyCode: defaultKey, carbonModifiers: UInt32(cmdKey), isCommandOnly: true)
+        }
+        let modifiers = shortcut.modifiers
+        var carbon: UInt32 = 0
+        if modifiers.contains(.command) { carbon |= UInt32(cmdKey) }
+        if modifiers.contains(.option) { carbon |= UInt32(optionKey) }
+        if modifiers.contains(.control) { carbon |= UInt32(controlKey) }
+        if carbon == 0 { carbon = UInt32(cmdKey) }
+        let isCommandOnly = modifiers.contains(.command)
+            && !modifiers.contains(.option)
+            && !modifiers.contains(.control)
+            && !modifiers.contains(.shift)
+        return CarbonTrigger(
+            keyCode: UInt32(shortcut.carbonKeyCode),
+            carbonModifiers: carbon,
+            isCommandOnly: isCommandOnly
+        )
     }
 
     private var phase: Phase {

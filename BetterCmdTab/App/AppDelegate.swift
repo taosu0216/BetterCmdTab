@@ -148,6 +148,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Restore OS-level state on quit. Disabling the native ⌘Tab symbolic hotkey
+    /// (so the switcher works under Secure Event Input) persists after the app
+    /// exits, so it must be re-enabled here or macOS's own ⌘Tab stays dead.
+    func applicationWillTerminate(_ notification: Notification) {
+        controller?.shutdown()
+    }
+
     /// Fired when the user launches the already-running app again (e.g. from
     /// Spotlight). The app is accessory with no dock icon, so reopening surfaces
     /// Settings — the only entry point when the menu bar icon is hidden.
