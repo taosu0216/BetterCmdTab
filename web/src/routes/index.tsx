@@ -73,7 +73,7 @@ const shortcuts: Array<[string, string]> = [
   ["Cmd W", "Close the highlighted window"],
   ["Cmd M", "Minimize the highlighted window"],
   ["Cmd H", "Hide / unhide the highlighted app"],
-  ["\\", "Drill into the highlighted row's tab group (browsers, Finder, Terminal)"],
+  ["Cmd \\", "Drill into the highlighted row's tab group (browsers, Finder, Terminal)"],
   ["Cmd Option arrows", "Move the highlighted window to the adjacent display"],
   ["Cmd Esc", "Cancel without activating"],
   ["Release Cmd", "Activate the highlighted row"],
