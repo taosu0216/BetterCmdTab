@@ -86,7 +86,6 @@ enum SearchID {
     static let switchOnRelease = "experimental.switchOnRelease"
     static let sensitivity = "experimental.sensitivity"
     static let instantSpace = "experimental.instantSpace"
-    static let moveToSpace = "experimental.moveToSpace"
 }
 
 @MainActor
@@ -249,8 +248,6 @@ enum SettingsCatalog {
              "Swipe sensitivity", ["sensitivity", "swipe", "distance"]),
         item(SearchID.instantSpace, .experimental, SettingsAnchor.experimental, "Experimental", "Experimental",
              "Switch Spaces without animation", ["spaces", "space", "animation", "instant", "full screen"]),
-        item(SearchID.moveToSpace, .experimental, SettingsAnchor.experimental, "Experimental", "Experimental",
-             "Move window to Space", ["move", "window", "space", "send to space"]),
     ]
 
     private static func item(

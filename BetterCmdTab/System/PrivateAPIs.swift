@@ -71,7 +71,8 @@ enum PrivateAPI {
     private static let copySpacesForWindowsFn: (@convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?)? =
         sym("CGSCopySpacesForWindows", in: skyLight)
     // (cid) -> CFArray of per-display dicts; each carries an ordered "Spaces"
-    // array (space dicts keyed by "id64") and a "Current Space" dict. Used to
+    // array (space dicts keyed by "ManagedSpaceID"/"id64") and a "Current Space"
+    // dict. Used to
     // turn the target window's Space into a signed left/right step count from
     // the display's current Space, which the synthetic swipe below then walks.
     private static let copyManagedDisplaySpacesFn: (@convention(c) (Int32) -> Unmanaged<CFArray>?)? =
@@ -80,10 +81,6 @@ enum PrivateAPI {
     // swipe will move, so we only post one for jumps within that display.
     private static let getActiveSpaceFn: (@convention(c) (Int32) -> UInt64)? =
         sym("CGSGetActiveSpace", in: skyLight)
-    // (cid, CFArray<window ids>, CGSSpaceID) -> Void. Moves the given windows to
-    // a Space. Backs the experimental "move window to adjacent Space" action.
-    private static let moveWindowsToSpaceFn: (@convention(c) (Int32, CFArray, UInt64) -> Void)? =
-        sym("CGSMoveWindowsToManagedSpace", in: skyLight)
 
     // MARK: - SkyLight: current-Space queries (read-only)
 
@@ -122,38 +119,6 @@ enum PrivateAPI {
         return result
     }
 
-    /// The Space adjacent to `space` by `step` (-1 = left, +1 = right) within the
-    /// same display's ordered Space list. nil at the ends or when unresolved.
-    /// Backs the experimental move-window-to-adjacent-Space action.
-    static func adjacentSpace(toSpace space: UInt64, step: Int) -> UInt64? {
-        guard space != 0, step != 0,
-              let mainConnection = mainConnectionFn,
-              let copyDisplays = copyManagedDisplaySpacesFn else { return nil }
-        let cid = mainConnection()
-        guard let cf = copyDisplays(cid)?.takeRetainedValue() else { return nil }
-        let displays = (cf as NSArray).compactMap { $0 as? [String: Any] }
-        for display in displays {
-            guard let spaceArray = display["Spaces"] as? [Any] else { continue }
-            let ids = spaceArray.compactMap { ($0 as? [String: Any]).flatMap(spaceId) }
-            guard let idx = ids.firstIndex(of: space) else { continue }
-            let target = idx + step
-            return ids.indices.contains(target) ? ids[target] : nil
-        }
-        return nil
-    }
-
-    /// Move a single window to `space`. Returns false when the private API is
-    /// unavailable. Does not switch the user to that Space — call `switchToSpace`
-    /// afterwards to follow the window.
-    @discardableResult
-    static func moveWindow(_ wid: CGWindowID, toSpace space: UInt64) -> Bool {
-        guard wid != 0, space != 0,
-              let mainConnection = mainConnectionFn,
-              let move = moveWindowsToSpaceFn else { return false }
-        move(mainConnection(), [NSNumber(value: wid)] as CFArray, space)
-        return true
-    }
-
     /// One-shot startup diagnostic. Returns the list of dlsym symbols that
     /// failed to resolve, so AppDelegate can surface a single warning instead
     /// of every call site silently no-opping.
@@ -168,7 +133,6 @@ enum PrivateAPI {
         if copySpacesForWindowsFn == nil { missing.append("CGSCopySpacesForWindows") }
         if copyManagedDisplaySpacesFn == nil { missing.append("CGSCopyManagedDisplaySpaces") }
         if getActiveSpaceFn == nil { missing.append("CGSGetActiveSpace") }
-        if moveWindowsToSpaceFn == nil { missing.append("CGSMoveWindowsToManagedSpace") }
         return missing
     }
 
@@ -194,9 +158,7 @@ enum PrivateAPI {
     static func switchToSpace(ofWindow wid: CGWindowID) -> Bool {
         guard wid != 0,
               let mainConnection = mainConnectionFn,
-              let copySpaces = copySpacesForWindowsFn,
-              let copyDisplays = copyManagedDisplaySpacesFn,
-              let getActiveSpace = getActiveSpaceFn else { return false }
+              let copySpaces = copySpacesForWindowsFn else { return false }
 
         let cid = mainConnection()
 
@@ -210,11 +172,25 @@ enum PrivateAPI {
         var targetSpace: UInt64 = 0
         guard CFNumberGetValue(number, .sInt64Type, &targetSpace), targetSpace != 0 else { return false }
 
-        // A synthetic swipe moves whichever display owns the focused Space, so
-        // anchor the step count there. How many Spaces left (−) or right (+) the
-        // target sits from the focused one. nil = the target is on a different
-        // display (let the caller's SLPS raise handle that — it stays menu-bar
-        // correct); 0 = already there. Either way, don't post a swipe.
+        return switchToSpace(targetSpace)
+    }
+
+    /// Switch instantly to `targetSpace` (same gesture path and instant feel as
+    /// `switchToSpace(ofWindow:)`), driven by a known Space id rather than a
+    /// window — for callers that already resolved the destination Space.
+    ///
+    /// A synthetic swipe moves whichever display owns the focused Space, so the
+    /// step count is anchored there. Returns false when already on `targetSpace`,
+    /// when it sits on another display (nil delta — the caller's SLPS raise
+    /// handles that, staying menu-bar correct), or when the layout is unresolved.
+    @discardableResult
+    static func switchToSpace(_ targetSpace: UInt64) -> Bool {
+        guard targetSpace != 0,
+              let mainConnection = mainConnectionFn,
+              let copyDisplays = copyManagedDisplaySpacesFn,
+              let getActiveSpace = getActiveSpaceFn else { return false }
+
+        let cid = mainConnection()
         let activeSpace = getActiveSpace(cid)
         guard activeSpace != 0,
               let cfDisplays = copyDisplays(cid)?.takeRetainedValue() else { return false }
@@ -297,11 +273,15 @@ enum PrivateAPI {
         return nil
     }
 
-    /// A Space's 64-bit id from its CGS dictionary. Recent macOS uses "id64";
-    /// older builds spelled it "ManagedSpaceID".
+    /// A Space's id from its CGS dictionary. Must match the id space the other
+    /// CGS calls use: `CGSCopySpacesForWindows`, `CGSGetActiveSpace`, and
+    /// `CGSMoveWindowsToManagedSpace` all speak `ManagedSpaceID`, so prefer that
+    /// — keying on "id64" instead made adjacent-Space lookups miss (and the
+    /// move-to-Space action silently no-op) on macOS builds where the two ids
+    /// differ. Fall back to "id64" for older builds that only carry it.
     private static func spaceId(_ dict: [String: Any]) -> UInt64? {
-        if let n = dict["id64"] as? NSNumber { return n.uint64Value }
         if let n = dict["ManagedSpaceID"] as? NSNumber { return n.uint64Value }
+        if let n = dict["id64"] as? NSNumber { return n.uint64Value }
         return nil
     }
 

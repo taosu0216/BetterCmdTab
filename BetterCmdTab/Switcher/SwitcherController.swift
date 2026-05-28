@@ -994,24 +994,15 @@ final class SwitcherController: SwitcherViewDelegate {
         scheduleVisibleRefresh(after: 0.25)
     }
 
-    /// Move the highlighted window. Horizontal moves go to the adjacent Space
-    /// when the experimental toggle is on (following the window there and
-    /// closing the switcher); otherwise — and for vertical moves — the window
-    /// hops to the adjacent display and the switcher stays open.
+    /// Move the highlighted window to the adjacent display in `direction`; the
+    /// switcher stays open so the move can be repeated.
     private func performMove(_ direction: MoveDirection) {
         guard phase == .visible, rows.indices.contains(index) else { return }
         let row = rows[index]
         guard !row.isSystemDialog, row.app != nil, row.window != nil else { return }
 
-        let horizontal = (direction == .left || direction == .right)
-        if horizontal && Preferences.shared.experimentalMoveToSpace {
-            Activator.moveWindowToSpace(row, direction: direction)
-            // We followed the window onto its new Space; dismiss the switcher.
-            cancel()
-        } else {
-            Activator.moveWindowToDisplay(row, direction: direction)
-            scheduleVisibleRefresh(after: 0.2)
-        }
+        Activator.moveWindowToDisplay(row, direction: direction)
+        scheduleVisibleRefresh(after: 0.2)
     }
 
     private func performQuitAction() {

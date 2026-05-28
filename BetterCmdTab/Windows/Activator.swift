@@ -435,27 +435,4 @@ enum Activator {
             }
         }
     }
-
-    /// Experimental: move the row's window to the adjacent Space in `direction`
-    /// (private SkyLight APIs), then follow it there with an instant Space switch
-    /// and raise it. Horizontal directions step Spaces; vertical falls back to
-    /// the caller's display move. No-op when the private APIs are unavailable.
-    static func moveWindowToSpace(_ row: SwitcherRow, direction: MoveDirection) {
-        guard let window = row.window else { return }
-        let step: Int
-        switch direction {
-        case .left, .up: step = -1
-        case .right, .down: step = 1
-        }
-        let wid = PrivateAPI.cgWindowId(of: window)
-        guard wid != 0,
-              let current = PrivateAPI.spaces(forWindows: [wid])[wid],
-              let target = PrivateAPI.adjacentSpace(toSpace: current, step: step),
-              PrivateAPI.moveWindow(wid, toSpace: target) else { return }
-        // Follow the window to its new Space (instant, no slide) and raise it.
-        PrivateAPI.switchToSpace(ofWindow: wid)
-        if let pid = row.pid {
-            PrivateAPI.raiseWindow(pid: pid, wid: wid)
-        }
-    }
 }

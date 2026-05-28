@@ -268,7 +268,6 @@ final class Preferences: ObservableObject {
         static let customAccentHex = "Switcher.customAccentHex"
         static let backdropMaterial = "Switcher.backdropMaterial"
         static let currentSpaceOnly = "Switcher.currentSpaceOnly"
-        static let experimentalMoveToSpace = "Switcher.experimentalMoveToSpace"
         static let directActivationBindings = "Switcher.directActivationBindings"
         static let hoverActionsEnabled = "Switcher.hoverActionsEnabled"
         static let hoverShowClose = "Switcher.hoverShowClose"
@@ -588,17 +587,6 @@ final class Preferences: ObservableObject {
         }
     }
 
-    /// Experimental: allow ⌘⇧← / ⌘⇧→ to move the highlighted window to the
-    /// adjacent Space (private SkyLight APIs). Off by default — fragile.
-    /// Display moves (⌘⇧↑ / ⌘⇧↓ and across monitors) use stable AX APIs and are
-    /// always available. [[experimental-features]]
-    @Published var experimentalMoveToSpace: Bool {
-        didSet {
-            guard oldValue != experimentalMoveToSpace else { return }
-            UserDefaults.standard.set(experimentalMoveToSpace, forKey: Keys.experimentalMoveToSpace)
-        }
-    }
-
     /// Target app bundle IDs for the direct-activation hotkey slots. Index maps
     /// to the slot number (0 = slot 1). An empty string means the slot is unset.
     /// Always normalized to `directActivationSlotCount` entries.
@@ -753,7 +741,6 @@ final class Preferences: ObservableObject {
         let materialRaw = defaults.string(forKey: Keys.backdropMaterial)
         self.backdropMaterial = materialRaw.flatMap(BackdropMaterial.init(rawValue:)) ?? .hud
         self.currentSpaceOnly = defaults.object(forKey: Keys.currentSpaceOnly) as? Bool ?? false
-        self.experimentalMoveToSpace = defaults.object(forKey: Keys.experimentalMoveToSpace) as? Bool ?? false
         self.directActivationBindings = Self.normalizeBindings(defaults.stringArray(forKey: Keys.directActivationBindings) ?? [])
         self.hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
         self.hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? true
