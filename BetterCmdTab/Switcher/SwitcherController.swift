@@ -78,6 +78,10 @@ final class SwitcherController: SwitcherViewDelegate {
     private var tabDrillActive: Bool = false
     private var tabIndex: Int = 0
     private var tabTitles: [String] = []
+    /// Transient, non-interactive message shown in the tab-strip region (e.g.
+    /// "grant Automation access") when a browser drill can't read tabs. Distinct
+    /// from `tabDrillActive`: presenting it never enables tab navigation.
+    private var tabDrillHint: String?
     /// Tab AX elements located by `WindowEnumerator.tabs(in:)` on drill-in.
     /// Held here (not on `SwitcherRow`) because they're resolved lazily —
     /// browsers nest the tab group too deep for the per-reveal AX scan to
@@ -921,6 +925,7 @@ final class SwitcherController: SwitcherViewDelegate {
 
     private func reveal() {
         guard phase == .primed else { return }
+        tabDrillHint = nil
         mru.syncFrontmost()
         refreshAuxiliaryIndicators()
 
@@ -1281,6 +1286,7 @@ final class SwitcherController: SwitcherViewDelegate {
         windowsOnlyPrimedDelta = 0
         closedTombstones.removeAll()
         tabDrillActive = false
+        tabDrillHint = nil
         tabTitles = []
         liveTabElements = []
         tabIndex = 0
@@ -1363,14 +1369,37 @@ final class SwitcherController: SwitcherViewDelegate {
         let gen = revealGeneration
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             let result = Self.fetchTabsBlocking(app: app, window: window, title: title, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
-            guard let result else { return }
             DispatchQueue.main.async {
                 guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
                 guard self.rows.indices.contains(self.index),
                       let currentWindow = self.rows[self.index].window,
                       CFEqual(currentWindow, window) else { return }
-                self.applyDrill(titles: result.titles, liveTabs: result.liveTabs, backend: result.backend, window: window)
+                switch result {
+                case .tabs(let titles, let liveTabs, let backend):
+                    self.applyDrill(titles: titles, liveTabs: liveTabs, backend: backend, window: window)
+                case .failed:
+                    self.showTabDrillHint(forApp: app)
+                case .none:
+                    break
+                }
             }
+        }
+    }
+
+    /// Briefly show a non-interactive hint in the tab-strip region when a browser
+    /// tab drill couldn't read the browser's tabs (almost always a missing
+    /// Automation permission). Does not enter drill mode, so navigation/commit
+    /// are unaffected; auto-dismisses.
+    private func showTabDrillHint(forApp app: NSRunningApplication) {
+        guard phase == .visible, !tabDrillActive else { return }
+        let name = app.localizedName ?? "this browser"
+        tabDrillHint = "Grant Automation access to \(name) in System Settings ▸ Privacy"
+        refreshDisplay()
+        let gen = revealGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, gen == self.revealGeneration, self.tabDrillHint != nil else { return }
+            self.tabDrillHint = nil
+            if self.phase == .visible { self.refreshDisplay() }
         }
     }
 
@@ -1382,6 +1411,7 @@ final class SwitcherController: SwitcherViewDelegate {
         tabDrillBackend = backend
         tabIndex = 0
         tabDrillActive = true
+        tabDrillHint = nil
         stickyOpen = true
         hotkey.setTabDrillActive(true)
         refreshDisplay()
@@ -1393,22 +1423,35 @@ final class SwitcherController: SwitcherViewDelegate {
     /// skip without forcing the panel into drill mode on an empty result).
     /// `prefetchedTabs` lets the caller short-circuit the recursive AX walk
     /// when the cache already discovered the tab group during its snapshot.
-    nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, title: String, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> (titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)? {
-        if isBrowser, let scripted = BrowserTabs.tabTitles(for: app, window: window, title: title), !scripted.isEmpty {
-            return (scripted, [], .appleScript)
-        }
-        if !isBrowser {
-            let axTabs: [AXUIElement]
-            if prefetchedTabs.count > 1 {
-                axTabs = prefetchedTabs
-            } else {
-                axTabs = WindowEnumerator.tabs(in: window)
+    /// Outcome of an off-main tab fetch. `failed` is browser-only — the
+    /// AppleScript bridge errored (Automation permission/timeout) — and lets the
+    /// caller surface a hint instead of silently doing nothing.
+    private enum DrillFetch {
+        case none
+        case failed
+        case tabs(titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)
+    }
+
+    nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, title: String, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> DrillFetch {
+        if isBrowser {
+            switch BrowserTabs.tabTitles(for: app, window: window, title: title) {
+            case .failed:
+                return .failed
+            case .tabs(let titles):
+                return titles.count > 1 ? .tabs(titles: titles, liveTabs: [], backend: .appleScript) : .none
+            case .notSupported:
+                return .none
             }
-            guard axTabs.count > 1 else { return nil }
-            let titles = WindowEnumerator.tabTitles(for: axTabs)
-            return (titles, axTabs, .accessibility)
         }
-        return nil
+        let axTabs: [AXUIElement]
+        if prefetchedTabs.count > 1 {
+            axTabs = prefetchedTabs
+        } else {
+            axTabs = WindowEnumerator.tabs(in: window)
+        }
+        guard axTabs.count > 1 else { return .none }
+        let titles = WindowEnumerator.tabTitles(for: axTabs)
+        return .tabs(titles: titles, liveTabs: axTabs, backend: .accessibility)
     }
 
     /// Kick a background prefetch for the highlighted row after a short
@@ -1450,8 +1493,8 @@ final class SwitcherController: SwitcherViewDelegate {
                     DispatchQueue.main.async {
                         guard let self, gen == self.revealGeneration else { return }
                         self.tabPrefetchInFlight.remove(key)
-                        guard let result, !result.titles.isEmpty else { return }
-                        self.tabPrefetchCache[key] = TabPrefetch(titles: result.titles, liveTabs: result.liveTabs, backend: result.backend)
+                        guard case .tabs(let titles, let liveTabs, let backend) = result, !titles.isEmpty else { return }
+                        self.tabPrefetchCache[key] = TabPrefetch(titles: titles, liveTabs: liveTabs, backend: backend)
                     }
                 }
             }
@@ -1463,6 +1506,7 @@ final class SwitcherController: SwitcherViewDelegate {
     private func exitTabDrill() {
         guard tabDrillActive else { return }
         tabDrillActive = false
+        tabDrillHint = nil
         tabTitles = []
         liveTabElements = []
         tabIndex = 0
@@ -1942,7 +1986,7 @@ final class SwitcherController: SwitcherViewDelegate {
             highlightPrefix: searchActive ? "" : letterBuffer,
             searchActive: searchActive,
             searchQuery: searchQuery,
-            tabStripTitles: tabDrillActive ? tabTitles : nil,
+            tabStripTitles: tabDrillActive ? tabTitles : tabDrillHint.map { [$0] },
             tabStripSelectedIndex: tabIndex
         )
         panel.present()

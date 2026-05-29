@@ -25,6 +25,15 @@ private func responsibility_spawnattrs_setdisclaim(_ attrs: UnsafeMutablePointer
 /// scripts read the right window.
 enum BrowserTabs {
 
+    /// Result of a tab-enumeration attempt. `failed` distinguishes a script
+    /// error (Automation permission denied, timeout) from a browser that simply
+    /// has too few tabs to drill — the caller surfaces a hint only for `failed`.
+    enum TabsOutcome {
+        case notSupported
+        case failed
+        case tabs([String])
+    }
+
     enum Family {
         case chromium  // Chrome, Brave, Edge, Vivaldi, Opera, Arc, Dia
         case safari    // Safari, Safari Technology Preview
@@ -252,9 +261,9 @@ enum BrowserTabs {
     /// never `AXRaise` — so listing tabs no longer reorders the user's windows.
     /// Only when the title is empty/ambiguous do we fall back to the legacy
     /// raise + `window 1` path.
-    static func tabTitles(for app: NSRunningApplication, window: AXUIElement, title: String) -> [String]? {
+    static func tabTitles(for app: NSRunningApplication, window: AXUIElement, title: String) -> TabsOutcome {
         guard let family = Family.from(bundleID: app.bundleIdentifier),
-              let bid = app.bundleIdentifier else { return nil }
+              let bid = app.bundleIdentifier else { return .notSupported }
         let appLit = appLiteral(bid)
         // The tab attribute (`title`/`name`) is also the window's title-ish
         // property in both dictionaries, so the same keyword matches windows.
@@ -271,10 +280,12 @@ enum BrowserTabs {
                     set matchIdx to 0
                     set matchCount to 0
                     repeat with i from 1 to wc
-                        if (\(attr) of window i) is "\(lit)" then
-                            set matchIdx to i
-                            set matchCount to matchCount + 1
-                        end if
+                        ignoring white space
+                            if (\(attr) of window i) is "\(lit)" then
+                                set matchIdx to i
+                                set matchCount to matchCount + 1
+                            end if
+                        end ignoring
                     end repeat
                     if matchCount is 1 then
                         set AppleScript's text item delimiters to (ASCII character 10)
@@ -286,13 +297,18 @@ enum BrowserTabs {
             end tell
             """
             if let raw = runScript(matchSource) {
-                if raw == "NOWINDOWS" { return [] }
+                if raw == "NOWINDOWS" { return .tabs([]) }
                 if raw != "FALLBACK" {
                     let body = raw.hasPrefix("MATCH\n") ? String(raw.dropFirst("MATCH\n".count)) : raw
                     let titles = body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-                    return titles.count > 1 ? titles : []
+                    return .tabs(titles)
                 }
                 // "FALLBACK" → title didn't uniquely match; use the raise path.
+            } else {
+                // Script errored (permission/timeout) — don't double-spawn the
+                // raise path, just report the failure.
+                NSLog("BrowserTabs: tabTitles \(bid) match script failed (permission/timeout?)")
+                return .failed
             }
         }
 
@@ -312,10 +328,10 @@ enum BrowserTabs {
         """
         guard let raw = runScript(source) else {
             NSLog("BrowserTabs: tabTitles \(bid) failed (permission/timeout?)")
-            return []
+            return .failed
         }
         let titles = raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        return titles.count > 1 ? titles : []
+        return .tabs(titles)
     }
 
     /// Switch the row window's browser tab to `tabIndex` (0-based here, 1-based
@@ -362,10 +378,12 @@ enum BrowserTabs {
                     set matchIdx to 0
                     set matchCount to 0
                     repeat with i from 1 to wc
-                        if (\(attr) of window i) is "\(lit)" then
-                            set matchIdx to i
-                            set matchCount to matchCount + 1
-                        end if
+                        ignoring white space
+                            if (\(attr) of window i) is "\(lit)" then
+                                set matchIdx to i
+                                set matchCount to matchCount + 1
+                            end if
+                        end ignoring
                     end repeat
                     if matchCount is 1 then
             \(selectBody("window matchIdx"))
