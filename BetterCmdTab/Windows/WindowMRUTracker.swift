@@ -56,15 +56,22 @@ final class WindowMRUTracker {
     /// changes (user clicked a different window manually) are reflected before
     /// rows get reordered.
     func syncFrontWindow(pid: pid_t) {
+        let wid = Self.focusedWindowID(pid: pid)
+        if wid != 0 { bump(pid: pid, wid: wid) }
+    }
+
+    /// Resolve the pid's focused-window CGWindowID via a blocking AX query.
+    /// `nonisolated` so callers can run it off the main thread — the AX calls
+    /// here can stall for the full messaging timeout if the target app is
+    /// unresponsive, which must never happen on the main run loop.
+    nonisolated static func focusedWindowID(pid: pid_t) -> CGWindowID {
         let axApp = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(axApp, 0.05)
         var focused: AnyObject?
         guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused) == .success,
               let focusedVal = focused,
-              CFGetTypeID(focusedVal) == AXUIElementGetTypeID() else { return }
-        let element = focusedVal as! AXUIElement
-        let wid = PrivateAPI.cgWindowId(of: element)
-        if wid != 0 { bump(pid: pid, wid: wid) }
+              CFGetTypeID(focusedVal) == AXUIElementGetTypeID() else { return 0 }
+        return PrivateAPI.cgWindowId(of: focusedVal as! AXUIElement)
     }
 
     /// Re-orders `rows` so MRU-known windows come first in MRU order; unknown

@@ -242,7 +242,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // them here instead of paying a full per-pid AX re-scan: just nudge the
         // per-app window-MRU so the next reveal orders windows correctly.
         cache.onFocusChanged = { [weak self] pid in
-            self?.windowMRU.syncFrontWindow(pid: pid)
+            self?.handleFocusChange(pid: pid)
         }
         // A window title changed while the switcher is open — refresh the
         // displayed titles (debounced) so they stay live, e.g. a browser tab
@@ -1090,12 +1090,36 @@ final class SwitcherController: SwitcherViewDelegate {
         refreshDisplay(anchorPid: anchorPid)
     }
 
+    /// pids with a focused-window resolve in flight, so a burst of focus-change
+    /// notifications for the same app collapses to one off-main AX read.
+    private var focusSyncInFlight: Set<pid_t> = []
+
+    /// React to a focus change without blocking the main thread: resolve the
+    /// pid's focused window off-main (the AX query can stall on an unresponsive
+    /// app), then bump the window MRU on main. Coalesced per pid.
+    private func handleFocusChange(pid: pid_t) {
+        guard !focusSyncInFlight.contains(pid) else { return }
+        focusSyncInFlight.insert(pid)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let wid = WindowMRUTracker.focusedWindowID(pid: pid)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.focusSyncInFlight.remove(pid)
+                if wid != 0 { self.windowMRU.bump(pid: pid, wid: wid) }
+            }
+        }
+    }
+
     private var visibleTitleRefreshScheduled = false
 
     /// Coalesce title-change notifications that arrive while the panel is open
     /// into a single refresh after a short settle, so a burst (a page loading,
-    /// a terminal scrolling) costs one re-scan rather than dozens. Re-uses the
-    /// post-reveal refresh path, which preserves the user's current selection.
+    /// a terminal scrolling) costs one pass rather than dozens.
+    ///
+    /// Deliberately does NOT trigger a full catalog re-scan: it only re-reads
+    /// the `kAXTitleAttribute` of the windows already on screen (off-main, since
+    /// the read can stall), then patches just those rows. A background browser
+    /// churning titles can't drag the whole app into repeated full scans.
     private func scheduleVisibleTitleRefresh() {
         guard phase == .visible, !visibleTitleRefreshScheduled else { return }
         visibleTitleRefreshScheduled = true
@@ -1104,10 +1128,33 @@ final class SwitcherController: SwitcherViewDelegate {
             guard let self else { return }
             self.visibleTitleRefreshScheduled = false
             guard self.phase == .visible, gen == self.revealGeneration else { return }
-            let anchor = self.rows.indices.contains(self.index) ? self.rows[self.index].pid : nil
-            self.cache.scheduleFullRefresh { [weak self] in
-                guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
-                self.applyFullSnapshot(self.cache.rows(orderedBy: self.mru.order), anchorPid: anchor)
+            let windows = self.baseRows.compactMap(\.window)
+            guard !windows.isEmpty else { return }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                var titles: [AXRef: String] = [:]
+                for w in windows {
+                    AXUIElementSetMessagingTimeout(w, 0.05)
+                    var v: AnyObject?
+                    if AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &v) == .success,
+                       let t = v as? String {
+                        titles[AXRef(element: w)] = t
+                    }
+                }
+                DispatchQueue.main.async {
+                    guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
+                    var changed = false
+                    let patched = self.baseRows.map { row -> SwitcherRow in
+                        guard let w = row.window,
+                              let t = titles[AXRef(element: w)],
+                              t != row.windowTitle else { return row }
+                        changed = true
+                        return row.withWindowTitle(t)
+                    }
+                    guard changed else { return }
+                    self.baseRows = patched
+                    self.baseLabels = RowLabels.labels(for: self.baseRows)
+                    self.refreshDisplay()
+                }
             }
         }
     }

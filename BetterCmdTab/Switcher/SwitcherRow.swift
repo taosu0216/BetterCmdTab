@@ -80,6 +80,24 @@ struct SwitcherRow {
         self.tabs = []
     }
 
+    /// A copy of this row with an updated window title, used for in-place title
+    /// refresh while the panel is open. No-op for non-window (launchable/recent)
+    /// subjects since they carry no live window title.
+    func withWindowTitle(_ newTitle: String) -> SwitcherRow {
+        guard case .running(let app) = subject else { return self }
+        return SwitcherRow(
+            app: app,
+            window: window,
+            windowTitle: newTitle,
+            isMinimized: isMinimized,
+            isFullscreen: isFullscreen,
+            isPlaceholder: isPlaceholder,
+            suppressNoWindowGlyph: suppressNoWindowGlyph,
+            tabs: tabs,
+            cgWindowID: cgWindowID
+        )
+    }
+
     /// True when this row has a tab group worth drilling into.
     var hasTabs: Bool { tabs.count > 1 }
 

@@ -15,7 +15,12 @@ import Foundation
 ///
 /// The handler path is deliberately minimal: it only reads a pre-allocated C
 /// buffer and calls a dlsym'd C function pointer, so it allocates nothing and
-/// touches no Swift runtime machinery that would be unsafe from a signal context.
+/// touches no Swift heap that would be unsafe from a signal context. Only the
+/// graceful termination signals are hooked (SIGTERM/SIGINT/SIGHUP) — crash
+/// signals (SIGSEGV/SIGBUS/...) are intentionally left to the OS crash reporter,
+/// and the process state during a crash is too suspect to risk a WindowServer
+/// IPC anyway. Crashes are instead healed on the next launch by
+/// `SwitcherController`.
 enum SymbolicHotkeyGuard {
     /// Max managed keys: ⌘Tab, ⌘⇧Tab, ⌘`. A `0` slot means "empty".
     private static let capacity = 3
@@ -42,6 +47,11 @@ enum SymbolicHotkeyGuard {
     /// Record the raw symbolic-hotkey ids currently disabled, so the signal /
     /// atexit handlers know what to restore. Call on every change to the
     /// disabled set (disable *and* the empty set on clean re-enable).
+    ///
+    /// A signal arriving mid-write can read a torn set, but each slot is a
+    /// word-sized store (atomic on arm64/x86-64) and the consequence is benign:
+    /// a missed slot just stays disabled until the next-launch self-heal, and a
+    /// stale slot re-enables an already-enabled key (a no-op).
     static func setDisabled(_ rawIds: [Int32]) {
         for i in 0..<capacity {
             slots[i] = i < rawIds.count ? rawIds[i] : 0
@@ -68,16 +78,19 @@ enum SymbolicHotkeyGuard {
 
         atexit { SymbolicHotkeyGuard.restore() }
 
-        // Catch the terminations we can: graceful (TERM/INT/HUP) and the common
-        // crash signals (ABRT/SEGV/...). Restore, then re-raise the default
-        // action so the process still dies / dumps as it normally would.
-        let sigs: [Int32] = [SIGTERM, SIGINT, SIGHUP, SIGABRT, SIGSEGV, SIGILL, SIGBUS, SIGFPE]
-        for s in sigs {
-            signal(s) { sig in
-                SymbolicHotkeyGuard.restore()
-                signal(sig, SIG_DFL)
-                raise(sig)
-            }
+        // Graceful terminations only. SA_RESETHAND restores the default
+        // disposition before the handler runs, so the trailing `raise` performs
+        // the normal action (terminate) — without it the signal would be
+        // swallowed and the process would keep running.
+        var action = sigaction()
+        action.__sigaction_u.__sa_handler = { sig in
+            SymbolicHotkeyGuard.restore()
+            raise(sig)
+        }
+        sigemptyset(&action.sa_mask)
+        action.sa_flags = SA_RESETHAND
+        for s in [SIGTERM, SIGINT, SIGHUP] {
+            sigaction(s, &action, nil)
         }
     }
 }

@@ -1,6 +1,12 @@
 import AppKit
 import ApplicationServices
 
+/// File-scope mirror of the panel-visible state. The AX observer callback is a C
+/// function pointer (`AXObserverCallback`) and so cannot reference a type's
+/// stored member without "capturing context"; a global it can read freely. Set
+/// and read only on the main run loop (where the callback fires), so untorn.
+private nonisolated(unsafe) var axCatalogPanelVisible = false
+
 @MainActor
 final class AppCatalogCache {
     struct AppCacheEntry {
@@ -66,6 +72,7 @@ final class AppCatalogCache {
         // idle scan cost; while visible, titles are kept live (see
         // `handleAXNotification` / `kAXTitleChangedNotification`).
         panelVisible = visible
+        axCatalogPanelVisible = visible
     }
 
     func rows(orderedBy mru: [pid_t]) -> [SwitcherRow] {
@@ -306,6 +313,11 @@ final class AppCatalogCache {
             if CFEqual(notification, kAXFocusedWindowChangedNotification as CFString) {
                 kind = .focus
             } else if CFEqual(notification, kAXTitleChangedNotification as CFString) {
+                // Title churn is by far the loudest notification; while the panel
+                // is hidden it changes nothing on screen, so drop it here before
+                // even a main-queue hop. (Read on the main run loop, where this
+                // callback fires, so the flag is never torn.)
+                if !axCatalogPanelVisible { return }
                 kind = .title
             } else {
                 kind = .set
