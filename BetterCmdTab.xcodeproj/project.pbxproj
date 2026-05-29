@@ -349,6 +349,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BetterCmdTab/BetterCmdTab.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20260528222835;
 				DEVELOPMENT_TEAM = N529W98U62;
@@ -357,7 +358,6 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				CODE_SIGN_ENTITLEMENTS = BetterCmdTab/BetterCmdTab.entitlements;
 				INFOPLIST_KEY_CFBundleDisplayName = "BetterCmdTab Debug";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -401,6 +401,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
+				CODE_SIGN_ENTITLEMENTS = BetterCmdTab/BetterCmdTab.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20260528222835;
 				DEVELOPMENT_TEAM = N529W98U62;
@@ -409,7 +410,6 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				CODE_SIGN_ENTITLEMENTS = BetterCmdTab/BetterCmdTab.entitlements;
 				INFOPLIST_KEY_CFBundleDisplayName = BetterCmdTab;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -539,17 +539,17 @@
 				minimumVersion = 0.1.1;
 			};
 		};
-		BU0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterUpdater" */ = {
+		BS0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterSettings" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/rokartur/BetterUpdater.git";
+			repositoryURL = "https://github.com/rokartur/BetterSettings.git";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.1.0;
 			};
 		};
-		BS0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterSettings" */ = {
+		BU0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterUpdater" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/rokartur/BetterSettings.git";
+			repositoryURL = "https://github.com/rokartur/BetterUpdater.git";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.1.0;
