@@ -4,6 +4,10 @@ import CoreGraphics
 
 struct WindowInfo {
     let ref: AXUIElement
+    /// WindowServer id of this window, resolved once during the scan. The stable
+    /// identity across AX element churn — used for z-order ranking, MRU, and
+    /// matching a window across refreshes without re-querying `_AXUIElementGetWindow`.
+    let cgWindowID: CGWindowID
     let title: String
     let isMinimized: Bool
     let isFullscreen: Bool
@@ -14,12 +18,14 @@ struct WindowInfo {
 
     init(
         ref: AXUIElement,
+        cgWindowID: CGWindowID = 0,
         title: String,
         isMinimized: Bool,
         isFullscreen: Bool = false,
         tabs: [AXUIElement] = []
     ) {
         self.ref = ref
+        self.cgWindowID = cgWindowID
         self.title = title
         self.isMinimized = isMinimized
         self.isFullscreen = isFullscreen
@@ -116,6 +122,9 @@ enum WindowEnumerator {
         var elements: [AXUIElement] = []
         var seenByElement = Set<AXRef>()
         var seenByWid = Set<CGWindowID>()
+        // Remember each accepted element's WindowServer id so the build pass can
+        // stamp `WindowInfo.cgWindowID` without a second `_AXUIElementGetWindow`.
+        var widByElement: [AXRef: CGWindowID] = [:]
 
         func appendIfNew(_ e: AXUIElement) {
             let ref = AXRef(element: e)
@@ -136,6 +145,7 @@ enum WindowEnumerator {
             if seenByWid.contains(wid) { return }
             seenByWid.insert(wid)
             seenByElement.insert(ref)
+            widByElement[ref] = wid
             elements.append(e)
         }
 
@@ -148,9 +158,16 @@ enum WindowEnumerator {
         // Skip brute-force AX scan when the CG window list says AX already has
         // every on-screen window covered. Apps with no CG-AX gap (the common
         // case) pay zero brute-scan cost.
+        // An empty CG hint means WindowServer reported no qualifying on-screen
+        // windows for this pid (the snapshot uses `.optionAll`, so fullscreen and
+        // other-Space windows are already covered). The brute-force token scan
+        // would only rediscover windows that have a CGWindowID, so there is
+        // nothing for it to find — skip it instead of probing 1024 ids for
+        // nothing. Brute-scan stays gated to the real case: a CG hint the AX
+        // window list didn't fully cover.
         let needBruteScan: Bool
         if expectedCGWindowIDs.isEmpty {
-            needBruteScan = isRegularApp
+            needBruteScan = false
         } else {
             needBruteScan = isRegularApp && !expectedCGWindowIDs.isSubset(of: seenByWid)
         }
@@ -227,17 +244,26 @@ enum WindowEnumerator {
             kAXPositionAttribute,
             kAXSizeAttribute,
         ] as CFArray
-        var seenTabGroups: Set<[AXRef]> = []
-        var addedTabGroupForPid = false
-        // Native macOS window tabs (Finder, Terminal, TextEdit, Ghostty, ...)
-        // expose each tab as its own AXWindow with its own CGWindowID — but
-        // they share the same on-screen frame because only one tab renders
-        // at a time and macOS keeps the merged-window outline identical
-        // across tabs. Dedup by (origin × size) keeps one row per visual
-        // merged window. Edge case: two separate tabbed windows of the same
-        // app happening to occupy exactly the same frame would collapse,
-        // but that requires the user to overlap two windows pixel-perfect.
-        var seenFrames: Set<String> = []
+        // Per-window attributes, fetched once each (one AX IPC per window —
+        // same round-trip count as processing inline). We materialize them up
+        // front because the merged-window dedup below needs to know which
+        // frames belong to a native tab group *before* deciding what to drop,
+        // and that fact can come from any window in the list regardless of
+        // iteration order.
+        struct RawWindow {
+            let element: AXUIElement
+            let cgWindowID: CGWindowID
+            let tabs: [AXUIElement]?
+            let minimized: Bool
+            let fullscreen: Bool
+            let title: String
+            let frameKey: String?
+        }
+        var raws: [RawWindow] = []
+        raws.reserveCapacity(elements.count)
+        // Frames occupied by a native macOS window-tab group. Only these are
+        // eligible for the merged-window dedup further down.
+        var tabGroupFrames: Set<String> = []
         for window in elements {
             AXUIElementSetMessagingTimeout(window, Self.confirmedTimeout)
             var valuesRef: CFArray?
@@ -247,8 +273,42 @@ enum WindowEnumerator {
             let subrole = (values[0] as? String) ?? ""
             guard acceptedSubroles.contains(subrole) else { continue }
 
+            let tabs = values[1] as? [AXUIElement]
+            let minimized = (values[2] as? Bool) ?? false
+            let fullscreen = (values[3] as? Bool) ?? false
+            let windowTitle = (values[4] as? String) ?? ""
+            // Minimized windows legitimately share (0, 0) — never frame-dedup them.
+            let frameKey = minimized ? nil : frameKeyFromAttributes(values[5], values[6])
+
+            if let tabs, tabs.count > 1, let frameKey { tabGroupFrames.insert(frameKey) }
+
+            raws.append(RawWindow(
+                element: window,
+                cgWindowID: widByElement[AXRef(element: window)] ?? 0,
+                tabs: tabs,
+                minimized: minimized,
+                fullscreen: fullscreen,
+                title: windowTitle,
+                frameKey: frameKey
+            ))
+        }
+
+        var seenTabGroups: Set<[AXRef]> = []
+        var addedTabGroupForPid = false
+        // Native macOS window tabs (Finder, Terminal, TextEdit, Ghostty, ...)
+        // expose each tab as its own AXWindow with its own CGWindowID — but
+        // they share the same on-screen frame because only one tab renders at
+        // a time and macOS keeps the merged-window outline identical across
+        // tabs. Collapsing by (origin × size) keeps one row per visual merged
+        // window. Crucially this is gated on `tabGroupFrames`: two genuinely
+        // separate windows that merely overlap (e.g. two maximized Chrome
+        // windows, which don't use native window tabs) must NOT collapse —
+        // doing so was issue #10, where the second maximized window vanished
+        // from the switcher.
+        var seenFrames: Set<String> = []
+        for raw in raws {
             var windowTabs: [AXUIElement] = []
-            if let tabs = values[1] as? [AXUIElement], tabs.count > 1 {
+            if let tabs = raw.tabs, tabs.count > 1 {
                 if addedTabGroupForPid { continue }
                 let key = tabs.map { AXRef(element: $0) }
                 if seenTabGroups.contains(key) { continue }
@@ -257,23 +317,17 @@ enum WindowEnumerator {
                 addedTabGroupForPid = true
             }
 
-            let minimized = (values[2] as? Bool) ?? false
-            let fullscreen = (values[3] as? Bool) ?? false
-            let windowTitle = (values[4] as? String) ?? ""
-
-            // Native-tab dedup by frame. Minimized windows legitimately
-            // share (0, 0) sometimes — skip the frame check for them.
-            if !minimized,
-               let frameKey = frameKeyFromAttributes(values[5], values[6]) {
+            if let frameKey = raw.frameKey, tabGroupFrames.contains(frameKey) {
                 if seenFrames.contains(frameKey) { continue }
                 seenFrames.insert(frameKey)
             }
 
             infos.append(WindowInfo(
-                ref: window,
-                title: windowTitle,
-                isMinimized: minimized,
-                isFullscreen: fullscreen,
+                ref: raw.element,
+                cgWindowID: raw.cgWindowID,
+                title: raw.title,
+                isMinimized: raw.minimized,
+                isFullscreen: raw.fullscreen,
                 tabs: windowTabs
             ))
         }
@@ -311,7 +365,7 @@ enum WindowEnumerator {
         for (i, wid) in cgZOrder.enumerated() { rank[wid] = i }
 
         let indexed = infos.enumerated().map { (offset, info) -> (rank: Int, fallback: Int, info: WindowInfo) in
-            let wid = PrivateAPI.cgWindowId(of: info.ref)
+            let wid = info.cgWindowID
             let r = (wid != 0 ? rank[wid] : nil) ?? Int.max
             return (r, offset, info)
         }

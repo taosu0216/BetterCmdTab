@@ -8,8 +8,9 @@ struct PreferencesEnumTests {
 
     @Test("PanelSize scale ordering: small < standard < large")
     func panelSizeOrdering() {
+        // Scale remap (2026-05-28): small=1.0, standard=1.2, large=1.5.
         #expect(PanelSize.small.scale < PanelSize.standard.scale)
-        #expect(PanelSize.standard.scale == 1.0)
+        #expect(PanelSize.standard.scale == 1.2)
         #expect(PanelSize.standard.scale < PanelSize.large.scale)
     }
 

@@ -78,6 +78,10 @@ final class SwitcherController: SwitcherViewDelegate {
     private var tabDrillActive: Bool = false
     private var tabIndex: Int = 0
     private var tabTitles: [String] = []
+    /// Transient, non-interactive message shown in the tab-strip region (e.g.
+    /// "grant Automation access") when a browser drill can't read tabs. Distinct
+    /// from `tabDrillActive`: presenting it never enables tab navigation.
+    private var tabDrillHint: String?
     /// Tab AX elements located by `WindowEnumerator.tabs(in:)` on drill-in.
     /// Held here (not on `SwitcherRow`) because they're resolved lazily —
     /// browsers nest the tab group too deep for the per-reveal AX scan to
@@ -223,10 +227,33 @@ final class SwitcherController: SwitcherViewDelegate {
         refreshDisplay()
     }
 
+    /// UserDefaults key recording which symbolic-hotkey ids we left disabled, so
+    /// a launch following an unclean exit can restore them. See `SymbolicHotkeyGuard`.
+    private static let persistedDisabledKey = "Switcher.disabledSymbolicHotKeys"
+
     func start() {
+        // Crash-safety for the WindowServer symbolic-hotkey disable (which
+        // outlives the process): install signal/atexit restoration, then
+        // self-heal any disable a previous run left behind before we re-derive
+        // and re-apply the current config. Covers the uncatchable SIGKILL case.
+        SymbolicHotkeyGuard.install()
+        healStaleSymbolicHotkeyDisable()
+
         mru.start()
         windowMRU.start()
         cache.start(mru: mru)
+        // Focus changes don't change any app's window set, so the cache routes
+        // them here instead of paying a full per-pid AX re-scan: just nudge the
+        // per-app window-MRU so the next reveal orders windows correctly.
+        cache.onFocusChanged = { [weak self] pid in
+            self?.handleFocusChange(pid: pid)
+        }
+        // A window title changed while the switcher is open — refresh the
+        // displayed titles (debounced) so they stay live, e.g. a browser tab
+        // finishing load while the user scans rows.
+        cache.onVisibleTitleChanged = { [weak self] in
+            self?.scheduleVisibleTitleRefresh()
+        }
         RecentlyClosedStore.shared.start()
         let installed = hotkey.install()
         if !installed {
@@ -401,6 +428,7 @@ final class SwitcherController: SwitcherViewDelegate {
             PrivateAPI.setNativeCommandTabEnabled(true, reEnable)
             PrivateAPI.setNativeCommandTabEnabled(false, toDisable)
             disabledSymbolicKeys = toDisable
+            persistDisabledSymbolicKeys(toDisable)
         }
 
         // Register forward + Shift-reverse chords for app switching, and the same
@@ -427,6 +455,37 @@ final class SwitcherController: SwitcherViewDelegate {
             PrivateAPI.setNativeCommandTabEnabled(true, disabledSymbolicKeys)
             disabledSymbolicKeys = []
         }
+        persistDisabledSymbolicKeys([])
+    }
+
+    /// Mirror the disabled symbolic-hotkey set into both the crash-restore guard
+    /// (signal/atexit) and UserDefaults (next-launch self-heal).
+    private func persistDisabledSymbolicKeys(_ keys: [PrivateAPI.SymbolicHotKey]) {
+        let raw = keys.map(\.rawValue)
+        SymbolicHotkeyGuard.setDisabled(raw)
+        let defaults = UserDefaults.standard
+        if raw.isEmpty {
+            defaults.removeObject(forKey: Self.persistedDisabledKey)
+        } else {
+            // Store as `[Int]` — `[Int32]` does not round-trip cleanly through
+            // UserDefaults' NSNumber bridging.
+            defaults.set(raw.map(Int.init), forKey: Self.persistedDisabledKey)
+        }
+    }
+
+    /// Re-enable any symbolic hotkeys a previous run disabled but never restored
+    /// (crash / SIGKILL / power loss). Runs once at startup before the live
+    /// config is applied; the normal `syncNativeHotkeyOverride` then re-disables
+    /// whatever the current trigger actually needs.
+    private func healStaleSymbolicHotkeyDisable() {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.array(forKey: Self.persistedDisabledKey) as? [Int], !raw.isEmpty else { return }
+        let keys = raw.compactMap { PrivateAPI.SymbolicHotKey(rawValue: Int32($0)) }
+        if !keys.isEmpty {
+            PrivateAPI.setNativeCommandTabEnabled(true, keys)
+        }
+        defaults.removeObject(forKey: Self.persistedDisabledKey)
+        SymbolicHotkeyGuard.setDisabled([])
     }
 
     /// Decompose a recorded shortcut into a held modifier mask + tap keycode for
@@ -866,6 +925,7 @@ final class SwitcherController: SwitcherViewDelegate {
 
     private func reveal() {
         guard phase == .primed else { return }
+        tabDrillHint = nil
         mru.syncFrontmost()
         refreshAuxiliaryIndicators()
 
@@ -1035,6 +1095,75 @@ final class SwitcherController: SwitcherViewDelegate {
         refreshDisplay(anchorPid: anchorPid)
     }
 
+    /// pids with a focused-window resolve in flight, so a burst of focus-change
+    /// notifications for the same app collapses to one off-main AX read.
+    private var focusSyncInFlight: Set<pid_t> = []
+
+    /// React to a focus change without blocking the main thread: resolve the
+    /// pid's focused window off-main (the AX query can stall on an unresponsive
+    /// app), then bump the window MRU on main. Coalesced per pid.
+    private func handleFocusChange(pid: pid_t) {
+        guard !focusSyncInFlight.contains(pid) else { return }
+        focusSyncInFlight.insert(pid)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let wid = WindowMRUTracker.focusedWindowID(pid: pid)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.focusSyncInFlight.remove(pid)
+                if wid != 0 { self.windowMRU.bump(pid: pid, wid: wid) }
+            }
+        }
+    }
+
+    private var visibleTitleRefreshScheduled = false
+
+    /// Coalesce title-change notifications that arrive while the panel is open
+    /// into a single refresh after a short settle, so a burst (a page loading,
+    /// a terminal scrolling) costs one pass rather than dozens.
+    ///
+    /// Deliberately does NOT trigger a full catalog re-scan: it only re-reads
+    /// the `kAXTitleAttribute` of the windows already on screen (off-main, since
+    /// the read can stall), then patches just those rows. A background browser
+    /// churning titles can't drag the whole app into repeated full scans.
+    private func scheduleVisibleTitleRefresh() {
+        guard phase == .visible, !visibleTitleRefreshScheduled else { return }
+        visibleTitleRefreshScheduled = true
+        let gen = revealGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            self.visibleTitleRefreshScheduled = false
+            guard self.phase == .visible, gen == self.revealGeneration else { return }
+            let windows = self.baseRows.compactMap(\.window)
+            guard !windows.isEmpty else { return }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                var titles: [AXRef: String] = [:]
+                for w in windows {
+                    AXUIElementSetMessagingTimeout(w, 0.05)
+                    var v: AnyObject?
+                    if AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &v) == .success,
+                       let t = v as? String {
+                        titles[AXRef(element: w)] = t
+                    }
+                }
+                DispatchQueue.main.async {
+                    guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
+                    var changed = false
+                    let patched = self.baseRows.map { row -> SwitcherRow in
+                        guard let w = row.window,
+                              let t = titles[AXRef(element: w)],
+                              t != row.windowTitle else { return row }
+                        changed = true
+                        return row.withWindowTitle(t)
+                    }
+                    guard changed else { return }
+                    self.baseRows = patched
+                    self.baseLabels = RowLabels.labels(for: self.baseRows)
+                    self.refreshDisplay()
+                }
+            }
+        }
+    }
+
     /// Select the window-switch target for a fast Cmd+` chord that commits
     /// while still in the primed phase (release of Cmd before the panel
     /// reveals). Mirrors the linear advance the visible phase would have
@@ -1157,6 +1286,7 @@ final class SwitcherController: SwitcherViewDelegate {
         windowsOnlyPrimedDelta = 0
         closedTombstones.removeAll()
         tabDrillActive = false
+        tabDrillHint = nil
         tabTitles = []
         liveTabElements = []
         tabIndex = 0
@@ -1235,17 +1365,41 @@ final class SwitcherController: SwitcherViewDelegate {
         // available — saves a recursive AX walk on every non-browser drill-in
         // (Finder/Terminal/etc.). Browsers ignore this and run AppleScript.
         let prefetchedTabs = isBrowser ? [] : row.tabs
+        let title = row.windowTitle
         let gen = revealGeneration
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            let result = Self.fetchTabsBlocking(app: app, window: window, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
-            guard let result else { return }
+            let result = Self.fetchTabsBlocking(app: app, window: window, title: title, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
             DispatchQueue.main.async {
                 guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
                 guard self.rows.indices.contains(self.index),
                       let currentWindow = self.rows[self.index].window,
                       CFEqual(currentWindow, window) else { return }
-                self.applyDrill(titles: result.titles, liveTabs: result.liveTabs, backend: result.backend, window: window)
+                switch result {
+                case .tabs(let titles, let liveTabs, let backend):
+                    self.applyDrill(titles: titles, liveTabs: liveTabs, backend: backend, window: window)
+                case .failed:
+                    self.showTabDrillHint(forApp: app)
+                case .none:
+                    break
+                }
             }
+        }
+    }
+
+    /// Briefly show a non-interactive hint in the tab-strip region when a browser
+    /// tab drill couldn't read the browser's tabs (almost always a missing
+    /// Automation permission). Does not enter drill mode, so navigation/commit
+    /// are unaffected; auto-dismisses.
+    private func showTabDrillHint(forApp app: NSRunningApplication) {
+        guard phase == .visible, !tabDrillActive else { return }
+        let name = app.localizedName ?? "this browser"
+        tabDrillHint = "Grant Automation access to \(name) in System Settings ▸ Privacy"
+        refreshDisplay()
+        let gen = revealGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, gen == self.revealGeneration, self.tabDrillHint != nil else { return }
+            self.tabDrillHint = nil
+            if self.phase == .visible { self.refreshDisplay() }
         }
     }
 
@@ -1257,6 +1411,7 @@ final class SwitcherController: SwitcherViewDelegate {
         tabDrillBackend = backend
         tabIndex = 0
         tabDrillActive = true
+        tabDrillHint = nil
         stickyOpen = true
         hotkey.setTabDrillActive(true)
         refreshDisplay()
@@ -1268,22 +1423,35 @@ final class SwitcherController: SwitcherViewDelegate {
     /// skip without forcing the panel into drill mode on an empty result).
     /// `prefetchedTabs` lets the caller short-circuit the recursive AX walk
     /// when the cache already discovered the tab group during its snapshot.
-    nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> (titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)? {
-        if isBrowser, let scripted = BrowserTabs.tabTitles(for: app, window: window), !scripted.isEmpty {
-            return (scripted, [], .appleScript)
-        }
-        if !isBrowser {
-            let axTabs: [AXUIElement]
-            if prefetchedTabs.count > 1 {
-                axTabs = prefetchedTabs
-            } else {
-                axTabs = WindowEnumerator.tabs(in: window)
+    /// Outcome of an off-main tab fetch. `failed` is browser-only — the
+    /// AppleScript bridge errored (Automation permission/timeout) — and lets the
+    /// caller surface a hint instead of silently doing nothing.
+    private enum DrillFetch {
+        case none
+        case failed
+        case tabs(titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)
+    }
+
+    nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, title: String, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> DrillFetch {
+        if isBrowser {
+            switch BrowserTabs.tabTitles(for: app, window: window, title: title) {
+            case .failed:
+                return .failed
+            case .tabs(let titles):
+                return titles.count > 1 ? .tabs(titles: titles, liveTabs: [], backend: .appleScript) : .none
+            case .notSupported:
+                return .none
             }
-            guard axTabs.count > 1 else { return nil }
-            let titles = WindowEnumerator.tabTitles(for: axTabs)
-            return (titles, axTabs, .accessibility)
         }
-        return nil
+        let axTabs: [AXUIElement]
+        if prefetchedTabs.count > 1 {
+            axTabs = prefetchedTabs
+        } else {
+            axTabs = WindowEnumerator.tabs(in: window)
+        }
+        guard axTabs.count > 1 else { return .none }
+        let titles = WindowEnumerator.tabTitles(for: axTabs)
+        return .tabs(titles: titles, liveTabs: axTabs, backend: .accessibility)
     }
 
     /// Kick a background prefetch for the highlighted row after a short
@@ -1299,7 +1467,18 @@ final class SwitcherController: SwitcherViewDelegate {
         let key = AXRef(element: window)
         if tabPrefetchCache[key] != nil || tabPrefetchInFlight.contains(key) { return }
         let isBrowser = (BrowserTabs.Family.from(bundleID: app.bundleIdentifier) != nil)
-        let prefetchedTabs = isBrowser ? [] : rows[index].tabs
+        // Browsers reach their tabs through an AppleScript that must first
+        // `AXRaise` the row's window so `window 1` resolves to it — and that
+        // raise reorders the browser's windows, which the user perceives as
+        // the switcher silently switching windows on mere hover. Hover must
+        // never switch; only Space / Return / a click / releasing ⌘ commits.
+        // So don't prefetch browsers here; the drill strip is fetched
+        // on-demand when the user actually presses `\` (a deliberate gesture),
+        // and the raise's side effect there is expected. The AX path used by
+        // non-browser tabbed apps (Finder/Terminal/…) only reads attributes —
+        // no raise — so it stays eligible for the instant-drill prefetch.
+        if isBrowser { return }
+        let prefetchedTabs = rows[index].tabs
         let timer = Timer(timeInterval: 0.18, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -1308,12 +1487,14 @@ final class SwitcherController: SwitcherViewDelegate {
                 self.tabPrefetchInFlight.insert(key)
                 let gen = self.revealGeneration
                 DispatchQueue.global(qos: .utility).async { [weak self] in
-                    let result = Self.fetchTabsBlocking(app: app, window: window, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
+                    // Browsers are excluded above, so this path is AX-only and
+                    // ignores `title`.
+                    let result = Self.fetchTabsBlocking(app: app, window: window, title: "", isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
                     DispatchQueue.main.async {
                         guard let self, gen == self.revealGeneration else { return }
                         self.tabPrefetchInFlight.remove(key)
-                        guard let result, !result.titles.isEmpty else { return }
-                        self.tabPrefetchCache[key] = TabPrefetch(titles: result.titles, liveTabs: result.liveTabs, backend: result.backend)
+                        guard case .tabs(let titles, let liveTabs, let backend) = result, !titles.isEmpty else { return }
+                        self.tabPrefetchCache[key] = TabPrefetch(titles: titles, liveTabs: liveTabs, backend: backend)
                     }
                 }
             }
@@ -1325,6 +1506,7 @@ final class SwitcherController: SwitcherViewDelegate {
     private func exitTabDrill() {
         guard tabDrillActive else { return }
         tabDrillActive = false
+        tabDrillHint = nil
         tabTitles = []
         liveTabElements = []
         tabIndex = 0
@@ -1382,8 +1564,9 @@ final class SwitcherController: SwitcherViewDelegate {
         CommitFeedback.play()
         switch backend {
         case .appleScript:
+            let title = row.windowTitle
             DispatchQueue.global(qos: .userInitiated).async {
-                _ = BrowserTabs.activateTab(at: chosen, in: app, window: window)
+                _ = BrowserTabs.activateTab(at: chosen, in: app, window: window, title: title)
             }
         case .accessibility:
             if let tab = axTab {
@@ -1803,7 +1986,7 @@ final class SwitcherController: SwitcherViewDelegate {
             highlightPrefix: searchActive ? "" : letterBuffer,
             searchActive: searchActive,
             searchQuery: searchQuery,
-            tabStripTitles: tabDrillActive ? tabTitles : nil,
+            tabStripTitles: tabDrillActive ? tabTitles : tabDrillHint.map { [$0] },
             tabStripSelectedIndex: tabIndex
         )
         panel.present()

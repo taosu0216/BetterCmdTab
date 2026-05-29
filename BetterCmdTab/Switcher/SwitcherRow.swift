@@ -13,6 +13,10 @@ struct SwitcherRow {
 
     let subject: Subject
     let window: AXUIElement?
+    /// WindowServer id of `window`, propagated from `WindowInfo`. 0 for rows with
+    /// no window (placeholder / launchable / recently-closed). Lets MRU sorting
+    /// avoid re-resolving the id via `_AXUIElementGetWindow` on every reorder.
+    let cgWindowID: CGWindowID
     let windowTitle: String
     let isMinimized: Bool
     let isFullscreen: Bool
@@ -36,10 +40,12 @@ struct SwitcherRow {
         isFullscreen: Bool = false,
         isPlaceholder: Bool = false,
         suppressNoWindowGlyph: Bool = false,
-        tabs: [AXUIElement] = []
+        tabs: [AXUIElement] = [],
+        cgWindowID: CGWindowID = 0
     ) {
         self.subject = .running(app)
         self.window = window
+        self.cgWindowID = cgWindowID
         self.windowTitle = windowTitle
         self.isMinimized = isMinimized
         self.isFullscreen = isFullscreen
@@ -52,6 +58,7 @@ struct SwitcherRow {
     init(launchable: InstalledApp) {
         self.subject = .launchable(launchable)
         self.window = nil
+        self.cgWindowID = 0
         self.windowTitle = ""
         self.isMinimized = false
         self.isFullscreen = false
@@ -64,12 +71,31 @@ struct SwitcherRow {
     init(recentlyClosed entry: RecentEntry) {
         self.subject = .recentlyClosed(entry)
         self.window = nil
+        self.cgWindowID = 0
         self.windowTitle = entry.title
         self.isMinimized = false
         self.isFullscreen = false
         self.isPlaceholder = false
         self.suppressNoWindowGlyph = false
         self.tabs = []
+    }
+
+    /// A copy of this row with an updated window title, used for in-place title
+    /// refresh while the panel is open. No-op for non-window (launchable/recent)
+    /// subjects since they carry no live window title.
+    func withWindowTitle(_ newTitle: String) -> SwitcherRow {
+        guard case .running(let app) = subject else { return self }
+        return SwitcherRow(
+            app: app,
+            window: window,
+            windowTitle: newTitle,
+            isMinimized: isMinimized,
+            isFullscreen: isFullscreen,
+            isPlaceholder: isPlaceholder,
+            suppressNoWindowGlyph: suppressNoWindowGlyph,
+            tabs: tabs,
+            cgWindowID: cgWindowID
+        )
     }
 
     /// True when this row has a tab group worth drilling into.
