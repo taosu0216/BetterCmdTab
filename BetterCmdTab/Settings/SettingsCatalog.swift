@@ -127,13 +127,14 @@ enum SettingsCatalog {
             id: SettingsTabID.general, title: "General", icon: "gear",
             iconStyle: style(0x898A8F, 0x67686E, scale: 1.0)
         ),
+        // ⌘ glyph — the Shortcuts tab is where you bind the Command-Tab triggers.
         SettingsTab(
-            id: SettingsTabID.shortcuts, title: "Shortcuts", icon: "keyboard.fill",
+            id: SettingsTabID.shortcuts, title: "Shortcuts", icon: "command",
             iconStyle: style(0x40BCFF, 0x0060FF, scale: 0.9)
         ),
-        // ⌘ glyph — the app *is* a Command-Tab switcher.
+        // Stacked windows — the switcher cycles through your open windows/apps.
         SettingsTab(
-            id: SettingsTabID.switcher, title: "Switcher", icon: "command",
+            id: SettingsTabID.switcher, title: "Switcher", icon: "rectangle.stack.fill",
             iconStyle: style(0xB272FF, 0x6228FF, scale: 0.95)
         ),
         SettingsTab(
