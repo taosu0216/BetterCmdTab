@@ -6,6 +6,12 @@ import ObjectiveC
 final class SwitcherPanel: NSPanel {
     private var prefCancellable: AnyCancellable?
 
+    /// Invoked whenever the panel is shown or relayed out (with its frame in
+    /// CGEvent global / top-left-origin coordinates) and when it's hidden (with
+    /// `nil`). SwitcherController forwards this to the hotkey tap so an outside
+    /// click can be hit-tested off the main thread.
+    var onFrameDidChange: ((CGRect?) -> Void)?
+
     /// Replace the inherited `-[NSWindow appearsActive]` getter for
     /// `SwitcherPanel` instances with a constant `true`. Dynamic NSColors used
     /// by row views (`.labelColor`, `.controlAccentColor`,
@@ -132,6 +138,7 @@ final class SwitcherPanel: NSPanel {
         alphaValue = CGFloat(Preferences.shared.panelOpacity) / 100
         makeKeyAndOrderFront(nil)
         CATransaction.commit()
+        onFrameDidChange?(Self.cgGlobalFrame(from: frame))
     }
 
     /// Hide the panel. `NSGlassEffectView` / `NSVisualEffectView` is a
@@ -155,6 +162,23 @@ final class SwitcherPanel: NSPanel {
         contentView?.isHidden = true
         orderOut(nil)
         CATransaction.commit()
+        onFrameDidChange?(nil)
+    }
+
+    /// Convert a Cocoa global rect (bottom-left origin, y-up) to the CGEvent
+    /// global coordinate space (top-left origin of the primary display, y-down)
+    /// used by `CGEvent.location`. Multi-display safe: both spaces are anchored
+    /// to the menu-bar screen, so the same primary-height flip applies to every
+    /// display's coordinates.
+    private static func cgGlobalFrame(from cocoaRect: NSRect) -> CGRect {
+        let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?
+            .frame.height ?? NSScreen.screens.first?.frame.height ?? 0
+        return CGRect(
+            x: cocoaRect.minX,
+            y: primaryHeight - cocoaRect.maxY,
+            width: cocoaRect.width,
+            height: cocoaRect.height
+        )
     }
 
     private func activeScreen() -> NSScreen {

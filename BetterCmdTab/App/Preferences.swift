@@ -265,6 +265,7 @@ final class Preferences: ObservableObject {
         static let swipeSensitivity = "Switcher.swipeSensitivity"
         static let scrollToSwitch = "Switcher.scrollToSwitch"
         static let scrollReverseDirection = "Switcher.scrollReverseDirection"
+        static let clickOutsideToDismiss = "Switcher.clickOutsideToDismiss"
         static let experimentalInstantSpaceSwitch = "Switcher.experimentalInstantSpaceSwitch"
         static let experimentalTabDrillIn = "Switcher.experimentalTabDrillIn"
         static let showUnreadBadges = "Switcher.showUnreadBadges"
@@ -507,6 +508,17 @@ final class Preferences: ObservableObject {
         didSet {
             guard oldValue != scrollReverseDirection else { return }
             UserDefaults.standard.set(scrollReverseDirection, forKey: Keys.scrollReverseDirection)
+        }
+    }
+
+    /// Dismiss the switcher when the user clicks outside the panel, leaving the
+    /// currently focused window untouched — like a macOS context menu or
+    /// Spotlight. The click is swallowed so it doesn't also activate whatever
+    /// was under the pointer. Default on.
+    @Published var clickOutsideToDismiss: Bool {
+        didSet {
+            guard oldValue != clickOutsideToDismiss else { return }
+            UserDefaults.standard.set(clickOutsideToDismiss, forKey: Keys.clickOutsideToDismiss)
         }
     }
 
@@ -762,6 +774,7 @@ final class Preferences: ObservableObject {
         self.swipeSensitivity = Self.clampSwipeSensitivity(sensitivity)
         self.scrollToSwitch = defaults.object(forKey: Keys.scrollToSwitch) as? Bool ?? true
         self.scrollReverseDirection = defaults.object(forKey: Keys.scrollReverseDirection) as? Bool ?? false
+        self.clickOutsideToDismiss = defaults.object(forKey: Keys.clickOutsideToDismiss) as? Bool ?? true
         self.experimentalInstantSpaceSwitch = defaults.object(forKey: Keys.experimentalInstantSpaceSwitch) as? Bool ?? false
         self.experimentalTabDrillIn = defaults.object(forKey: Keys.experimentalTabDrillIn) as? Bool ?? false
         // Badges graduated out of the Experimental tab and now default on. Honor

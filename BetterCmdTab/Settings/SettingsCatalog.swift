@@ -73,6 +73,7 @@ enum SearchID {
     static let searchMode = "switcher.searchMode"
     static let scroll = "switcher.scroll"
     static let scrollReverse = "switcher.scrollReverse"
+    static let clickDismiss = "switcher.clickDismiss"
     static let hoverActions = "switcher.hoverActions"
     static let excludedApps = "switcher.excludedApps"
     static let pinnedApps = "switcher.pinnedApps"
@@ -235,6 +236,8 @@ enum SettingsCatalog {
              "Switch with mouse scroll", ["scroll", "wheel", "mouse"]),
         item(SearchID.scrollReverse, .switcher, SettingsAnchor.navigation, "Switcher", "Navigation",
              "Reverse scroll direction", ["scroll", "reverse", "invert"]),
+        item(SearchID.clickDismiss, .switcher, SettingsAnchor.navigation, "Switcher", "Navigation",
+             "Click outside to dismiss", ["click", "outside", "dismiss", "cancel", "spotlight"]),
         // Switcher · Actions
         item(SearchID.hoverActions, .switcher, SettingsAnchor.actions, "Switcher", "Hover actions",
              "Action buttons on hover", ["hover", "buttons", "close", "minimize", "maximize", "hide", "quit", "actions"]),

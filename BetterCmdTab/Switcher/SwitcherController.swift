@@ -349,6 +349,16 @@ final class SwitcherController: SwitcherViewDelegate {
             .sink { [weak self] reverse in self?.hotkey.setScrollReverse(reverse) }
             .store(in: &cancellables)
 
+        // Click-outside-to-dismiss: the panel publishes its frame (in CGEvent
+        // global coordinates) on every present/dismiss; the tap hit-tests an
+        // outside click against it and swallows it to dismiss the switcher.
+        panel.onFrameDidChange = { [weak self] frame in self?.hotkey.setSwitcherFrame(frame) }
+        hotkey.setClickOutsideDismiss(Preferences.shared.clickOutsideToDismiss)
+        Preferences.shared.$clickOutsideToDismiss
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in self?.hotkey.setClickOutsideDismiss(enabled) }
+            .store(in: &cancellables)
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.prewarmPanel()
         }
@@ -681,6 +691,10 @@ final class SwitcherController: SwitcherViewDelegate {
             commit()
         case .escape:
             if searchActive { exitSearch() } else { cancel() }
+        case .dismiss:
+            // Click outside the panel: always fully dismiss, even mid-search or
+            // drilled into a tab strip, leaving the current window focused.
+            cancel()
         case .toggleSearch:
             toggleSearch()
         case .searchInput(let ch):
@@ -1378,6 +1392,9 @@ final class SwitcherController: SwitcherViewDelegate {
         guard phase == .visible, rows.indices.contains(index) else { return }
         let row = rows[index]
         guard let window = row.window, let app = row.app else { return }
+        // Never drill our own windows — the AX walk would run in-process off the
+        // main thread and crash the layout engine (see `isOwnProcess`).
+        guard !Self.isOwnProcess(app) else { return }
         // Cache hit: drill-in is instant — strip appears on the same run
         // loop tick.
         if let cached = tabPrefetchCache[AXRef(element: window)], !cached.titles.isEmpty {
@@ -1456,6 +1473,21 @@ final class SwitcherController: SwitcherViewDelegate {
         case tabs(titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)
     }
 
+    /// AX tab enumeration must never target our own process. Accessibility
+    /// requests to a *same-process* element are serviced in-process by AppKit,
+    /// and reading `kAXChildrenAttribute` forces a layout pass — illegal off the
+    /// main thread, which is exactly where the tab fetch runs (a background
+    /// queue, so the recursive AX walk stays off the reveal path). Querying
+    /// another app is safe off-main because that work happens in the *other*
+    /// process and only serialized data crosses back. Our own windows (Settings,
+    /// About) have no drillable tabs anyway, so skip them outright. Without this
+    /// guard, having our own window highlighted (e.g. Settings open) crashes with
+    /// "Modifications to the layout engine must not be performed from a
+    /// background thread."
+    private static func isOwnProcess(_ app: NSRunningApplication) -> Bool {
+        app.processIdentifier == NSRunningApplication.current.processIdentifier
+    }
+
     nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, title: String, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> DrillFetch {
         if isBrowser {
             switch BrowserTabs.tabTitles(for: app, window: window, title: title) {
@@ -1488,6 +1520,9 @@ final class SwitcherController: SwitcherViewDelegate {
               phase == .visible, rows.indices.contains(index),
               let window = rows[index].window,
               let app = rows[index].app else { return }
+        // Skip our own process: the prefetch AX walk runs off-main and would
+        // crash the layout engine on a same-process element (see `isOwnProcess`).
+        guard !Self.isOwnProcess(app) else { return }
         let key = AXRef(element: window)
         if tabPrefetchCache[key] != nil || tabPrefetchInFlight.contains(key) { return }
         let isBrowser = (BrowserTabs.Family.from(bundleID: app.bundleIdentifier) != nil)
