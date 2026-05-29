@@ -74,6 +74,12 @@ final class HotkeyTap {
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    /// Second tap carrying only the pointer events (scroll + mouse-down) that
+    /// the switcher consumes *while open*. Created disabled and toggled by
+    /// `setSwitching`, so a closed switcher routes no scroll/click traffic
+    /// through this process. See `install()`.
+    private var auxTap: CFMachPort?
+    private var auxRunLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
     private var tapRunLoop: CFRunLoop?
     private var layoutObserver: NSObjectProtocol?
@@ -183,9 +189,19 @@ final class HotkeyTap {
     private static let reservedLetters: Set<Character> = ["w", "m", "h", "q"]
 
     func install() -> Bool {
-        let mask: CGEventMask =
+        // Always-on tap: only the events we must catch from idle — the trigger
+        // chord (keyDown) and modifier tracking (flagsChanged). Keeping this
+        // mask minimal means a closed switcher's only system-wide event traffic
+        // is the keystrokes/modifiers we genuinely have to inspect.
+        let keyMask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue)
+        // Pointer events (scroll-to-switch + click-outside-to-dismiss) are only
+        // consumed while the switcher is OPEN. They live on a second tap that
+        // `setSwitching` enables on open and disables on dismiss — so while the
+        // switcher is closed (i.e. almost always) high-frequency scroll and
+        // trackpad-momentum events are not routed through this process at all.
+        let pointerMask: CGEventMask =
             (1 << CGEventType.scrollWheel.rawValue) |
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.rightMouseDown.rawValue) |
@@ -203,7 +219,7 @@ final class HotkeyTap {
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
-            eventsOfInterest: mask,
+            eventsOfInterest: keyMask,
             callback: callback,
             userInfo: opaqueSelf
         ) else {
@@ -217,6 +233,28 @@ final class HotkeyTap {
         runLoopSource = src
         CGEvent.tapEnable(tap: port, enable: true)
 
+        // The pointer tap shares the same callback (`handle` dispatches by
+        // type). Created disabled; toggled with the switcher's open state. A
+        // failure here only loses scroll/click features, not core switching.
+        var auxSrc: CFRunLoopSource?
+        if let auxPort = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: pointerMask,
+            callback: callback,
+            userInfo: opaqueSelf
+        ) {
+            let s = CFMachPortCreateRunLoopSource(nil, auxPort, 0)
+            auxTap = auxPort
+            auxRunLoopSource = s
+            auxSrc = s
+            CGEvent.tapEnable(tap: auxPort, enable: false)
+        } else {
+            Log.hotkey.warning("Pointer event tap creation failed; scroll-to-switch and click-outside-dismiss inactive")
+        }
+        let capturedAuxSrc = auxSrc
+
         // Run the tap on a dedicated thread. The main run loop stalls during
         // startup (per-app AX observer install, cache warmup, prewarm) and
         // every other point where AX timeouts hold the main thread. When the
@@ -229,6 +267,7 @@ final class HotkeyTap {
         let thread = Thread { [weak self] in
             let loop = CFRunLoopGetCurrent()!
             CFRunLoopAddSource(loop, src, .commonModes)
+            if let capturedAuxSrc { CFRunLoopAddSource(loop, capturedAuxSrc, .commonModes) }
             self?.tapRunLoop = loop
             started.signal()
             CFRunLoopRun()
@@ -252,14 +291,22 @@ final class HotkeyTap {
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
+        if let auxTap {
+            CGEvent.tapEnable(tap: auxTap, enable: false)
+        }
         if let loop = tapRunLoop {
             if let runLoopSource {
                 CFRunLoopRemoveSource(loop, runLoopSource, .commonModes)
+            }
+            if let auxRunLoopSource {
+                CFRunLoopRemoveSource(loop, auxRunLoopSource, .commonModes)
             }
             CFRunLoopStop(loop)
         }
         tap = nil
         runLoopSource = nil
+        auxTap = nil
+        auxRunLoopSource = nil
         tapRunLoop = nil
         tapThread = nil
         if let obs = layoutObserver {
@@ -277,6 +324,13 @@ final class HotkeyTap {
     /// the access safe without needing `MainActor.assumeIsolated`.
     func setSwitching(_ value: Bool) {
         switchingFlag.withLock { $0 = value }
+        // The pointer tap is only needed while the switcher is open; keep it
+        // live exactly for that window so idle scroll/click traffic never
+        // enters this process. Safe to call from main: `tapEnable` just toggles
+        // a flag in the WindowServer for the mach port.
+        if let auxTap {
+            CGEvent.tapEnable(tap: auxTap, enable: value)
+        }
     }
 
     /// Enter/leave recording mode. While recording, keyDowns are consumed and
@@ -402,6 +456,9 @@ final class HotkeyTap {
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            // Re-arm the pointer tap only if it should currently be live (i.e.
+            // the switcher is open); otherwise it stays disabled as intended.
+            if let auxTap, isSwitchingNow() { CGEvent.tapEnable(tap: auxTap, enable: true) }
             Log.hotkey.warning("CGEventTap disabled, re-enabling")
             return Unmanaged.passUnretained(event)
         }
@@ -664,7 +721,13 @@ final class HotkeyTap {
             if anyModHeld && shiftHeld && !wasShift && isSwitchingNow() {
                 deliver(.prevApp)
             }
-            if !anyModHeld {
+            // `.releaseCmd` only means anything while the switcher is open
+            // (releasing the hold modifier commits the selection). When idle
+            // this fires on *every* modifier release system-wide — every ⌘C/⌘V,
+            // every Shift for a capital letter — and each one would dispatch a
+            // no-op `commit()` to the main thread. Gate it on switching so idle
+            // typing costs nothing on the main run loop.
+            if !anyModHeld && isSwitchingNow() {
                 deliver(.releaseCmd)
             }
         }
