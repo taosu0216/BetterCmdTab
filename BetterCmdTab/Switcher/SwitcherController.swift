@@ -1312,9 +1312,10 @@ final class SwitcherController: SwitcherViewDelegate {
         // available — saves a recursive AX walk on every non-browser drill-in
         // (Finder/Terminal/etc.). Browsers ignore this and run AppleScript.
         let prefetchedTabs = isBrowser ? [] : row.tabs
+        let title = row.windowTitle
         let gen = revealGeneration
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            let result = Self.fetchTabsBlocking(app: app, window: window, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
+            let result = Self.fetchTabsBlocking(app: app, window: window, title: title, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
             guard let result else { return }
             DispatchQueue.main.async {
                 guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
@@ -1345,8 +1346,8 @@ final class SwitcherController: SwitcherViewDelegate {
     /// skip without forcing the panel into drill mode on an empty result).
     /// `prefetchedTabs` lets the caller short-circuit the recursive AX walk
     /// when the cache already discovered the tab group during its snapshot.
-    nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> (titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)? {
-        if isBrowser, let scripted = BrowserTabs.tabTitles(for: app, window: window), !scripted.isEmpty {
+    nonisolated private static func fetchTabsBlocking(app: NSRunningApplication, window: AXUIElement, title: String, isBrowser: Bool, prefetchedTabs: [AXUIElement] = []) -> (titles: [String], liveTabs: [AXUIElement], backend: TabDrillBackend)? {
+        if isBrowser, let scripted = BrowserTabs.tabTitles(for: app, window: window, title: title), !scripted.isEmpty {
             return (scripted, [], .appleScript)
         }
         if !isBrowser {
@@ -1396,7 +1397,9 @@ final class SwitcherController: SwitcherViewDelegate {
                 self.tabPrefetchInFlight.insert(key)
                 let gen = self.revealGeneration
                 DispatchQueue.global(qos: .utility).async { [weak self] in
-                    let result = Self.fetchTabsBlocking(app: app, window: window, isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
+                    // Browsers are excluded above, so this path is AX-only and
+                    // ignores `title`.
+                    let result = Self.fetchTabsBlocking(app: app, window: window, title: "", isBrowser: isBrowser, prefetchedTabs: prefetchedTabs)
                     DispatchQueue.main.async {
                         guard let self, gen == self.revealGeneration else { return }
                         self.tabPrefetchInFlight.remove(key)
@@ -1470,8 +1473,9 @@ final class SwitcherController: SwitcherViewDelegate {
         CommitFeedback.play()
         switch backend {
         case .appleScript:
+            let title = row.windowTitle
             DispatchQueue.global(qos: .userInitiated).async {
-                _ = BrowserTabs.activateTab(at: chosen, in: app, window: window)
+                _ = BrowserTabs.activateTab(at: chosen, in: app, window: window, title: title)
             }
         case .accessibility:
             if let tab = axTab {

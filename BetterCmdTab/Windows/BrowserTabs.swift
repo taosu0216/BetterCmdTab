@@ -246,17 +246,60 @@ enum BrowserTabs {
     /// Enumerate the row window's tabs. Returns nil if the app isn't a
     /// supported browser; returns [] if the browser has fewer than 2 tabs
     /// (drill-in is only meaningful past 1). Run off-main.
-    static func tabTitles(for app: NSRunningApplication, window: AXUIElement) -> [String]? {
+    ///
+    /// `title` is the row window's AX title. When it uniquely identifies one of
+    /// the browser's windows we read that window directly (`window <index>`) and
+    /// never `AXRaise` — so listing tabs no longer reorders the user's windows.
+    /// Only when the title is empty/ambiguous do we fall back to the legacy
+    /// raise + `window 1` path.
+    static func tabTitles(for app: NSRunningApplication, window: AXUIElement, title: String) -> [String]? {
         guard let family = Family.from(bundleID: app.bundleIdentifier),
               let bid = app.bundleIdentifier else { return nil }
-        NSLog("BrowserTabs: tabTitles for \(bid) family=\(family)")
-        raiseInBrowser(window, pid: app.processIdentifier)
-        let appLit = appLiteral(app.bundleIdentifier ?? "")
+        let appLit = appLiteral(bid)
+        // The tab attribute (`title`/`name`) is also the window's title-ish
+        // property in both dictionaries, so the same keyword matches windows.
         let attr: String = (family == .safari) ? "name" : "title"
-        // `as text` joins list items with the current text item delimiter,
-        // which defaults to "". We pin it to LF so the output is one title
-        // per line and parses unambiguously even when a title contains
-        // commas.
+
+        // Preferred path: locate the window by name, no raise.
+        if !title.isEmpty {
+            let lit = escape(title)
+            let matchSource = """
+            tell \(appLit)
+                with timeout of 3 seconds
+                    set wc to count of windows
+                    if wc = 0 then return "NOWINDOWS"
+                    set matchIdx to 0
+                    set matchCount to 0
+                    repeat with i from 1 to wc
+                        if (\(attr) of window i) is "\(lit)" then
+                            set matchIdx to i
+                            set matchCount to matchCount + 1
+                        end if
+                    end repeat
+                    if matchCount is 1 then
+                        set AppleScript's text item delimiters to (ASCII character 10)
+                        return "MATCH" & (ASCII character 10) & ((\(attr) of every tab of window matchIdx) as text)
+                    else
+                        return "FALLBACK"
+                    end if
+                end timeout
+            end tell
+            """
+            if let raw = runScript(matchSource) {
+                if raw == "NOWINDOWS" { return [] }
+                if raw != "FALLBACK" {
+                    let body = raw.hasPrefix("MATCH\n") ? String(raw.dropFirst("MATCH\n".count)) : raw
+                    let titles = body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                    return titles.count > 1 ? titles : []
+                }
+                // "FALLBACK" → title didn't uniquely match; use the raise path.
+            }
+        }
+
+        // Fallback: force the row's window frontmost and read `window 1`. `as
+        // text` joins with the current delimiter (default ""), so pin it to LF
+        // for unambiguous parsing even when a title contains commas.
+        raiseInBrowser(window, pid: app.processIdentifier)
         let source = """
         tell \(appLit)
             with timeout of 3 seconds
@@ -267,52 +310,86 @@ enum BrowserTabs {
         set AppleScript's text item delimiters to (ASCII character 10)
         return theList as text
         """
-        guard let raw = runScript(source) else { return [] }
-        NSLog("BrowserTabs: raw output (\(raw.count) chars) = \(raw.prefix(200))")
+        guard let raw = runScript(source) else {
+            NSLog("BrowserTabs: tabTitles \(bid) failed (permission/timeout?)")
+            return []
+        }
         let titles = raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        NSLog("BrowserTabs: parsed \(titles.count) titles")
         return titles.count > 1 ? titles : []
     }
 
-    /// Switch the row window's frontmost browser tab to `tabIndex` (1-based
+    /// Switch the row window's browser tab to `tabIndex` (0-based here, 1-based
     /// for AppleScript) and bring the browser forward. Run off-main.
-    static func activateTab(at tabIndex: Int, in app: NSRunningApplication, window: AXUIElement) -> Bool {
-        guard let family = Family.from(bundleID: app.bundleIdentifier) else { return false }
-        NSLog("BrowserTabs: activateTab index=\(tabIndex) bid=\(app.bundleIdentifier ?? "?")")
-        raiseInBrowser(window, pid: app.processIdentifier)
-        let appLit = appLiteral(app.bundleIdentifier ?? "")
+    ///
+    /// Like `tabTitles`, prefers to resolve the window by `title` and operate on
+    /// `window <index>` (no `AXRaise`); falls back to raise + `window 1` when the
+    /// title is empty/ambiguous. The `activate` (bring the app forward) stays —
+    /// this is the deliberate commit, so the window coming front is expected.
+    static func activateTab(at tabIndex: Int, in app: NSRunningApplication, window: AXUIElement, title: String) -> Bool {
+        guard let family = Family.from(bundleID: app.bundleIdentifier),
+              let bid = app.bundleIdentifier else { return false }
+        let appLit = appLiteral(bid)
+        let attr: String = (family == .safari) ? "name" : "title"
         let oneBased = tabIndex + 1
-        let source: String
-        switch family {
-        case .chromium:
-            source = """
-            tell \(appLit)
-                with timeout of 3 seconds
-                    if (count of windows) = 0 then return "false"
-                    set tabCount to count of tabs of window 1
+
+        // Per-family "select tab N of <windowExpr>, raise it, activate" body.
+        func selectBody(_ windowExpr: String) -> String {
+            let setTab: String
+            switch family {
+            case .chromium:
+                setTab = "set active tab index of \(windowExpr) to \(oneBased)"
+            case .safari:
+                setTab = "set current tab of \(windowExpr) to tab \(oneBased) of \(windowExpr)"
+            }
+            return """
+                    set tabCount to count of tabs of \(windowExpr)
                     if \(oneBased) > tabCount then return "false"
-                    set active tab index of window 1 to \(oneBased)
-                    set index of window 1 to 1
+                    \(setTab)
+                    set index of \(windowExpr) to 1
                     activate
                     return "true"
-                end timeout
-            end tell
-            """
-        case .safari:
-            source = """
-            tell \(appLit)
-                with timeout of 3 seconds
-                    if (count of windows) = 0 then return "false"
-                    set tabCount to count of tabs of window 1
-                    if \(oneBased) > tabCount then return "false"
-                    set current tab of window 1 to tab \(oneBased) of window 1
-                    set index of window 1 to 1
-                    activate
-                    return "true"
-                end timeout
-            end tell
             """
         }
+
+        // Preferred path: select within the name-matched window, no raise.
+        if !title.isEmpty {
+            let lit = escape(title)
+            let matchSource = """
+            tell \(appLit)
+                with timeout of 3 seconds
+                    set wc to count of windows
+                    if wc = 0 then return "false"
+                    set matchIdx to 0
+                    set matchCount to 0
+                    repeat with i from 1 to wc
+                        if (\(attr) of window i) is "\(lit)" then
+                            set matchIdx to i
+                            set matchCount to matchCount + 1
+                        end if
+                    end repeat
+                    if matchCount is 1 then
+            \(selectBody("window matchIdx"))
+                    else
+                        return "FALLBACK"
+                    end if
+                end timeout
+            end tell
+            """
+            if let raw = runScript(matchSource), raw != "FALLBACK" {
+                return raw == "true"
+            }
+        }
+
+        // Fallback: raise the row's window frontmost, operate on `window 1`.
+        raiseInBrowser(window, pid: app.processIdentifier)
+        let source = """
+        tell \(appLit)
+            with timeout of 3 seconds
+                if (count of windows) = 0 then return "false"
+        \(selectBody("window 1"))
+            end timeout
+        end tell
+        """
         guard let raw = runScript(source) else { return false }
         return raw == "true"
     }
