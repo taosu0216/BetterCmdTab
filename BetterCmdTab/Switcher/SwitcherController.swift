@@ -223,7 +223,18 @@ final class SwitcherController: SwitcherViewDelegate {
         refreshDisplay()
     }
 
+    /// UserDefaults key recording which symbolic-hotkey ids we left disabled, so
+    /// a launch following an unclean exit can restore them. See `SymbolicHotkeyGuard`.
+    private static let persistedDisabledKey = "Switcher.disabledSymbolicHotKeys"
+
     func start() {
+        // Crash-safety for the WindowServer symbolic-hotkey disable (which
+        // outlives the process): install signal/atexit restoration, then
+        // self-heal any disable a previous run left behind before we re-derive
+        // and re-apply the current config. Covers the uncatchable SIGKILL case.
+        SymbolicHotkeyGuard.install()
+        healStaleSymbolicHotkeyDisable()
+
         mru.start()
         windowMRU.start()
         cache.start(mru: mru)
@@ -401,6 +412,7 @@ final class SwitcherController: SwitcherViewDelegate {
             PrivateAPI.setNativeCommandTabEnabled(true, reEnable)
             PrivateAPI.setNativeCommandTabEnabled(false, toDisable)
             disabledSymbolicKeys = toDisable
+            persistDisabledSymbolicKeys(toDisable)
         }
 
         // Register forward + Shift-reverse chords for app switching, and the same
@@ -427,6 +439,37 @@ final class SwitcherController: SwitcherViewDelegate {
             PrivateAPI.setNativeCommandTabEnabled(true, disabledSymbolicKeys)
             disabledSymbolicKeys = []
         }
+        persistDisabledSymbolicKeys([])
+    }
+
+    /// Mirror the disabled symbolic-hotkey set into both the crash-restore guard
+    /// (signal/atexit) and UserDefaults (next-launch self-heal).
+    private func persistDisabledSymbolicKeys(_ keys: [PrivateAPI.SymbolicHotKey]) {
+        let raw = keys.map(\.rawValue)
+        SymbolicHotkeyGuard.setDisabled(raw)
+        let defaults = UserDefaults.standard
+        if raw.isEmpty {
+            defaults.removeObject(forKey: Self.persistedDisabledKey)
+        } else {
+            // Store as `[Int]` — `[Int32]` does not round-trip cleanly through
+            // UserDefaults' NSNumber bridging.
+            defaults.set(raw.map(Int.init), forKey: Self.persistedDisabledKey)
+        }
+    }
+
+    /// Re-enable any symbolic hotkeys a previous run disabled but never restored
+    /// (crash / SIGKILL / power loss). Runs once at startup before the live
+    /// config is applied; the normal `syncNativeHotkeyOverride` then re-disables
+    /// whatever the current trigger actually needs.
+    private func healStaleSymbolicHotkeyDisable() {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.array(forKey: Self.persistedDisabledKey) as? [Int], !raw.isEmpty else { return }
+        let keys = raw.compactMap { PrivateAPI.SymbolicHotKey(rawValue: Int32($0)) }
+        if !keys.isEmpty {
+            PrivateAPI.setNativeCommandTabEnabled(true, keys)
+        }
+        defaults.removeObject(forKey: Self.persistedDisabledKey)
+        SymbolicHotkeyGuard.setDisabled([])
     }
 
     /// Decompose a recorded shortcut into a held modifier mask + tap keycode for
