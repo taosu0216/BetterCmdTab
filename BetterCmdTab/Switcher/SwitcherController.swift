@@ -1299,7 +1299,18 @@ final class SwitcherController: SwitcherViewDelegate {
         let key = AXRef(element: window)
         if tabPrefetchCache[key] != nil || tabPrefetchInFlight.contains(key) { return }
         let isBrowser = (BrowserTabs.Family.from(bundleID: app.bundleIdentifier) != nil)
-        let prefetchedTabs = isBrowser ? [] : rows[index].tabs
+        // Browsers reach their tabs through an AppleScript that must first
+        // `AXRaise` the row's window so `window 1` resolves to it — and that
+        // raise reorders the browser's windows, which the user perceives as
+        // the switcher silently switching windows on mere hover. Hover must
+        // never switch; only Space / Return / a click / releasing ⌘ commits.
+        // So don't prefetch browsers here; the drill strip is fetched
+        // on-demand when the user actually presses `\` (a deliberate gesture),
+        // and the raise's side effect there is expected. The AX path used by
+        // non-browser tabbed apps (Finder/Terminal/…) only reads attributes —
+        // no raise — so it stays eligible for the instant-drill prefetch.
+        if isBrowser { return }
+        let prefetchedTabs = rows[index].tabs
         let timer = Timer(timeInterval: 0.18, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
