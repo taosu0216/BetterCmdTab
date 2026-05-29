@@ -38,7 +38,7 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
         swipeModePopup.target = self
         swipeModePopup.action = #selector(swipeModeChanged)
         addRow(to: experimental, title: "Swipe action",
-               subtitle: "Open switcher: scrub through apps (commit with Return/click, Esc to cancel). Switch Spaces: jump to the Space on that side, one per step.",
+               subtitle: "Open switcher: scrub through apps (commit with Return/click, Esc to cancel). Switch Spaces: jump to the Space on that side, one per step. Quick switch: flip to your last app, like a quick ⌘Tab tap — swipe again to flip back.",
                accessory: swipeModePopup, searchItemID: SearchID.swipeMode)
 
         configureSwitch(reverseSwitch, action: #selector(toggleReverse(_:)))
@@ -173,10 +173,14 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
     /// The reverse/commit/sensitivity controls only make sense while the swipe
     /// is enabled.
     private func setSwipeSubOptionsEnabled(_ enabled: Bool) {
-        let spaces = Preferences.shared.swipeMode == .switchSpaces
+        // Commit-on-release and sensitivity only apply to the continuous
+        // "open switcher" scrub. Direction has no meaning for the quick-switch
+        // flip (any swipe just toggles), so reverse is off there too.
+        let scrub = Preferences.shared.swipeMode == .openSwitcher
+        let directional = Preferences.shared.swipeMode != .quickSwitch
         swipeModePopup.isEnabled = enabled
-        reverseSwitch.isEnabled = enabled
-        commitSwitch.isEnabled = enabled && !spaces
-        sensitivitySlider.isEnabled = enabled && !spaces
+        reverseSwitch.isEnabled = enabled && directional
+        commitSwitch.isEnabled = enabled && scrub
+        sensitivitySlider.isEnabled = enabled && scrub
     }
 }

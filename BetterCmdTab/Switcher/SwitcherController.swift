@@ -305,7 +305,9 @@ final class SwitcherController: SwitcherViewDelegate {
         swipeTrigger.setReverseDirection(Preferences.shared.swipeReverseDirection)
         swipeTrigger.setCommitOnRelease(Preferences.shared.swipeCommitOnRelease)
         swipeTrigger.setSensitivity(Preferences.shared.swipeSensitivity)
-        swipeTrigger.setOneShot(Preferences.shared.swipeMode == .switchSpaces)
+        // Only "open switcher" scrubs continuously; the other modes fire once
+        // per swipe (one Space jump / one app flip).
+        swipeTrigger.setOneShot(Preferences.shared.swipeMode != .openSwitcher)
         swipeTrigger.setEnabled(Preferences.shared.experimentalSwipeTrigger)
         // The swipe takes over three-finger horizontal Spaces navigation, so
         // suppress the system Space-swipe whenever the swipe is enabled.
@@ -331,7 +333,7 @@ final class SwitcherController: SwitcherViewDelegate {
             .store(in: &cancellables)
         Preferences.shared.$swipeMode
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] mode in self?.swipeTrigger.setOneShot(mode == .switchSpaces) }
+            .sink { [weak self] mode in self?.swipeTrigger.setOneShot(mode != .openSwitcher) }
             .store(in: &cancellables)
 
         // Mouse scroll-to-switch: stepped by the hotkey tap (it sees scroll
@@ -363,6 +365,12 @@ final class SwitcherController: SwitcherViewDelegate {
             PrivateAPI.switchSpaceWrapping(rightward: delta > 0)
             return
         }
+        // In "quick switch" mode the swipe never opens the switcher — each swipe
+        // flips to the previously-used app like a quick ⌘Tab tap-and-release.
+        if Preferences.shared.swipeMode == .quickSwitch {
+            quickSwitchToPreviousApp()
+            return
+        }
         switch phase {
         case .visible:
             advanceLinearVisible(by: delta, wrap: true)
@@ -387,6 +395,22 @@ final class SwitcherController: SwitcherViewDelegate {
     private func commitFromGesture() {
         guard phase != .idle else { return }
         commit()
+    }
+
+    /// "Quick switch" swipe mode: one swipe acts like a quick ⌘Tab
+    /// tap-and-release — flip to the previously-used app, no panel. Activating
+    /// reorders the MRU, so the next swipe flips back: repeated swipes bounce
+    /// between the two most recent apps exactly like double-tapping ⌘Tab.
+    private func quickSwitchToPreviousApp() {
+        mru.syncFrontmost()
+        // order[0] is the current frontmost; order[1] is the previous app.
+        guard mru.order.count >= 2 else { return }
+        let targetPid = mru.order[1]
+        // A stale pid (app quit before its terminate notification landed) just
+        // no-ops this swipe; the next MRU sync drops it.
+        guard let app = NSRunningApplication(processIdentifier: targetPid) else { return }
+        Activator.activateApp(app)
+        mru.bump(targetPid)
     }
 
     private func pushHotkeyConfig() {

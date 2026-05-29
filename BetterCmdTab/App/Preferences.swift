@@ -173,11 +173,15 @@ enum SwipeMode: String, CaseIterable {
     case openSwitcher
     /// Switch to the Space on the left/right, one per swipe step.
     case switchSpaces
+    /// Flip to the previously-used app — one swipe acts like a quick ⌘Tab
+    /// tap-and-release. Repeated swipes bounce between the two most recent apps.
+    case quickSwitch
 
     var displayName: String {
         switch self {
         case .openSwitcher: return "Open switcher"
         case .switchSpaces: return "Switch Spaces"
+        case .quickSwitch: return "Quick switch (last 2 apps)"
         }
     }
 }
