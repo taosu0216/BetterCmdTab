@@ -211,6 +211,10 @@ enum Activator {
             return
         }
 
+        // Parity with `activateApp`/`focusedWindow`: cap AX messaging so a wedged
+        // target can't stall the (main-thread) raise + focus writes below.
+        AXUIElementSetMessagingTimeout(window, 0.2)
+
         var minimizedValue: AnyObject?
         AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
         if (minimizedValue as? Bool) == true {
@@ -245,6 +249,20 @@ enum Activator {
         // post-activation so the AX server accepts.
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+
+        // `activateProcess` (NSRunningApplication.activate) brings the app forward
+        // asynchronously; its effect can land *after* the writes above and
+        // re-select the app's last-used window — the app then shows active in the
+        // menu bar while our target window never takes key focus (the intermittent
+        // "switched app but wrong/no window focused" bug). Re-assert raise + focus
+        // once activation has settled, but only while our target is still frontmost
+        // so we never yank focus the user may have since moved elsewhere.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        }
     }
 
     /// Activate a specific tab inside `window`. Same window-bringing steps as
