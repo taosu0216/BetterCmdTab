@@ -272,6 +272,18 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
     /// Builds the secondary line: leading status glyphs (each tinted to its
     /// semantic color) followed by the text, centered as one group.
     private func makeTitle(indicators: [SwitcherIndicator], text: String) -> NSAttributedString {
+        let key = TitleKey(
+            indicators: indicators,
+            text: text,
+            fontSize: metrics.tileTitleFontSize,
+            accentKey: accentKey
+        )
+        return Self.titleCache.value(for: key) {
+            self.buildTitle(indicators: indicators, text: text)
+        }
+    }
+
+    private func buildTitle(indicators: [SwitcherIndicator], text: String) -> NSAttributedString {
         let font = NSFont.systemFont(ofSize: metrics.tileTitleFontSize, weight: .regular)
         let para = NSMutableParagraphStyle()
         para.alignment = .center
@@ -340,6 +352,19 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         let accentKey: String
     }
     private static var symbolCache = MemoCache<SymbolKey, NSImage?>(capacity: 128)
+
+    private struct TitleKey: Hashable {
+        let indicators: [SwitcherIndicator]
+        let text: String
+        let fontSize: CGFloat
+        let accentKey: String
+    }
+    /// The fully assembled secondary line (tinted glyph attachments + text) is
+    /// the same immutable string for any tile with the same inputs, so memoize
+    /// it like `letterCache`/`symbolCache`. Otherwise `configure` rebuilds an
+    /// NSMutableAttributedString + one NSTextAttachment per glyph for every tile
+    /// on every reveal / reorder / search keystroke / badge repaint.
+    private static var titleCache = MemoCache<TitleKey, NSAttributedString>(capacity: 256)
 
     /// Tinted status-glyph image for the secondary line, memoized: otherwise
     /// `withSymbolConfiguration` re-renders the SF Symbol on every `configure`,

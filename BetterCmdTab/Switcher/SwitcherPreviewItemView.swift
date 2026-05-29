@@ -283,8 +283,15 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         // Label row: small app icon + window title, centered as a group.
         let labelAreaH = m.previewLabelArea
         let iconSize = min(m.previewIconSize, labelAreaH)
-        nameLabel.sizeToFit()
-        let nameW = min(ceil(nameLabel.frame.width), w - iconSize - 6)
+        // Measure the title width with a string-metrics query rather than
+        // `nameLabel.sizeToFit()`, which lays out and resizes the whole
+        // NSTextField just to read a width that's immediately clamped below.
+        // `nameLabel` is a plain single-line truncating field, so the glyph
+        // bounding box is equivalent; `nameLabel.frame` is set explicitly at
+        // the end of this method, so the skipped sizeToFit mutates nothing used.
+        let measureFont = nameLabel.font ?? NSFont.systemFont(ofSize: m.previewNameFontSize, weight: .medium)
+        let textW = (nameLabel.stringValue as NSString).size(withAttributes: [.font: measureFont]).width
+        let nameW = min(ceil(textW), w - iconSize - 6)
         let groupW = iconSize + 4 + nameW
         let startX = max(0, round((w - groupW) / 2))
         let rowMidY = labelAreaH / 2
