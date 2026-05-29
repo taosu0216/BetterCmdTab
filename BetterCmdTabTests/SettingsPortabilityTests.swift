@@ -88,6 +88,25 @@ struct SettingsPortabilityTests {
         }
     }
 
+    @Test("a non-plist value (JSON null) is skipped, not crashed on")
+    func nullValueSkipped() throws {
+        let prefs = Preferences.shared
+        // JSON null bridges to NSNull, which UserDefaults.set would reject with an
+        // uncatchable exception — import must skip it and apply the rest.
+        let root: [String: Any] = [
+            "app": "BetterCmdTab",
+            "schemaVersion": Preferences.exportSchemaVersion,
+            "values": [
+                "Switcher.bogusNull": NSNull(),
+                Preferences.Keys.letterHintsEnabled: true,
+            ] as [String: Any],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: root)
+        // Must not throw / crash.
+        try prefs.importSettings(from: data)
+        #expect(UserDefaults.standard.object(forKey: "Switcher.bogusNull") == nil)
+    }
+
     @Test("keys outside the Switcher namespace are ignored on import")
     func foreignKeysIgnored() throws {
         let prefs = Preferences.shared

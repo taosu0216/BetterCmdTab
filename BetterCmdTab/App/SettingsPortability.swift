@@ -84,6 +84,13 @@ extension Preferences {
 
         let defaults = UserDefaults.standard
         for (key, value) in values where key.hasPrefix(Self.exportKeyPrefix) {
+            // Only write valid property-list values. A hand-crafted or corrupted
+            // file can carry a JSON `null` (bridged to `NSNull`) or some other
+            // non-plist object; `UserDefaults.set` raises an uncatchable
+            // `NSInvalidArgumentException` ("non-property-list object") on those,
+            // which would crash the app. Skip anything that isn't plist-safe —
+            // the key keeps its current value and the rest of the import applies.
+            guard PropertyListSerialization.propertyList(value, isValidFor: .binary) else { continue }
             defaults.set(value, forKey: key)
         }
         reloadFromDefaults()
