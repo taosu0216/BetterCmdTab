@@ -19,6 +19,10 @@ final class HotkeyTap {
         case releaseCmd
         case commit
         case escape
+        /// A click landed outside the open switcher panel. Dismiss without
+        /// committing, leaving the current window focused (the tap swallows the
+        /// click so it doesn't activate whatever was under the pointer).
+        case dismiss
         case closeWindow
         case minimizeWindow
         case hideApp
@@ -86,6 +90,15 @@ final class HotkeyTap {
     private let scrollEnabledFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
     /// Flip the scroll-to-switch direction.
     private let scrollReverseFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// When true, a mouse-down outside `switcherFrame` while the switcher is
+    /// open dismisses it (the click is swallowed). Off → clicks always pass
+    /// through.
+    private let clickDismissFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// The open switcher panel's frame in CGEvent global (top-left origin,
+    /// y-down) coordinates, so a mouse-down location can be hit-tested on the
+    /// tap thread without touching AppKit. `nil` while the panel is hidden.
+    /// Published by SwitcherController on present/dismiss and on every relayout.
+    private let switcherFrame = OSAllocatedUnfairLock<CGRect?>(initialState: nil)
     private let config = OSAllocatedUnfairLock<Config>(
         initialState: Config(appModifier: .maskCommand, appKey: 48, windowModifier: .maskCommand, windowKey: 50)
     )
@@ -118,7 +131,10 @@ final class HotkeyTap {
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue) |
-            (1 << CGEventType.scrollWheel.rawValue)
+            (1 << CGEventType.scrollWheel.rawValue) |
+            (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.rightMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue)
 
         let opaqueSelf = Unmanaged.passUnretained(self).toOpaque()
 
@@ -236,6 +252,18 @@ final class HotkeyTap {
         scrollReverseFlag.withLock { $0 = value }
     }
 
+    /// Enable/disable click-outside-to-dismiss for the open switcher.
+    func setClickOutsideDismiss(_ value: Bool) {
+        clickDismissFlag.withLock { $0 = value }
+    }
+
+    /// Publish the open switcher panel's frame in CGEvent global (top-left
+    /// origin, y-down) coordinates, or `nil` once it's hidden. Read by the tap
+    /// callback to hit-test outside clicks.
+    func setSwitcherFrame(_ frame: CGRect?) {
+        switcherFrame.withLock { $0 = frame }
+    }
+
     /// Apply user-chosen modifiers + trigger keys. Safe to call any time; the
     /// tap callback reads the new value on its next event.
     func updateConfig(_ newConfig: Config) {
@@ -329,6 +357,23 @@ final class HotkeyTap {
             let reverse = scrollReverseFlag.withLock { $0 }
             let forward = (delta < 0) != reverse
             deliver(forward ? .nextApp : .prevApp)
+            return nil
+        }
+
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            // Click-outside-to-dismiss: only while the switcher is open and the
+            // feature is enabled. A click inside the panel passes through so row
+            // clicks and hover-action buttons keep working; a click outside is
+            // swallowed (return nil) and dismisses the switcher, leaving the
+            // current window focused instead of activating whatever was clicked.
+            guard isSwitchingNow(), clickDismissFlag.withLock({ $0 }),
+                  let frame = switcherFrame.withLock({ $0 }) else {
+                return Unmanaged.passUnretained(event)
+            }
+            if frame.contains(event.location) {
+                return Unmanaged.passUnretained(event)
+            }
+            deliver(.dismiss)
             return nil
         }
 

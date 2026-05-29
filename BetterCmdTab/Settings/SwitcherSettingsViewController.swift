@@ -28,6 +28,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
     // Navigation
     private let scrollSwitch = NSSwitch()
     private let scrollReverseSwitch = NSSwitch()
+    private let clickDismissSwitch = NSSwitch()
 
     // Hover actions
     private let hoverSwitch = NSSwitch()
@@ -120,6 +121,10 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         addRow(to: navigation, title: "Reverse scroll direction",
                subtitle: "Scroll up to move forward instead of down.",
                accessory: scrollReverseSwitch, searchItemID: SearchID.scrollReverse)
+        configureSwitch(clickDismissSwitch, action: #selector(toggleClickDismiss(_:)))
+        addRow(to: navigation, title: "Click outside to dismiss",
+               subtitle: "Click anywhere outside the switcher to close it, leaving the current window focused.",
+               accessory: clickDismissSwitch, searchItemID: SearchID.clickDismiss)
 
         // Hover actions section — buttons revealed on a row under the pointer.
         let actions = addSection(title: "Hover actions", anchor: SettingsAnchor.actions)
@@ -186,6 +191,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         scrollSwitch.state = prefs.scrollToSwitch ? .on : .off
         scrollReverseSwitch.state = prefs.scrollReverseDirection ? .on : .off
         scrollReverseSwitch.isEnabled = prefs.scrollToSwitch
+        clickDismissSwitch.state = prefs.clickOutsideToDismiss ? .on : .off
         hoverSwitch.state = prefs.hoverActionsEnabled ? .on : .off
         hoverCloseSwitch.state = prefs.hoverShowClose ? .on : .off
         hoverMinimizeSwitch.state = prefs.hoverShowMinimize ? .on : .off
@@ -256,6 +262,10 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
 
     @objc private func toggleScrollReverse(_ sender: NSSwitch) {
         Preferences.shared.scrollReverseDirection = (sender.state == .on)
+    }
+
+    @objc private func toggleClickDismiss(_ sender: NSSwitch) {
+        Preferences.shared.clickOutsideToDismiss = (sender.state == .on)
     }
 
     @objc private func toggleHover(_ sender: NSSwitch) {
