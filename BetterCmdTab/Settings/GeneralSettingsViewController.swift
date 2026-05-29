@@ -193,10 +193,17 @@ final class GeneralSettingsViewController: SettingsTabViewController {
         let panel = NSSavePanel()
         panel.title = "Export Settings"
         panel.prompt = "Export"
-        panel.nameFieldStringValue = "BetterCmdTab Settings.\(Preferences.exportFileExtension)"
-        if let type = UTType(filenameExtension: Preferences.exportFileExtension) {
-            panel.allowedContentTypes = [type, .json]
-        }
+        // Name carries NO extension — the panel appends `.cmdtab` from the
+        // content type. Baking it into the name (and using an unregistered
+        // dynamic type) is what produced the ".bettercmdtab.bettercmdtab"
+        // doubling. Prefer the registered exported UTI; fall back to the
+        // extension-derived type, then JSON, if LaunchServices hasn't indexed
+        // the app yet (e.g. first run from a fresh build).
+        panel.nameFieldStringValue = Preferences.exportDefaultBaseName
+        let exportType = UTType(Preferences.exportUTIIdentifier)
+            ?? UTType(filenameExtension: Preferences.exportFileExtension)
+            ?? .json
+        panel.allowedContentTypes = [exportType]
         panel.isExtensionHidden = false
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
@@ -222,7 +229,9 @@ final class GeneralSettingsViewController: SettingsTabViewController {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         var types: [UTType] = [.json]
-        if let type = UTType(filenameExtension: Preferences.exportFileExtension) { types.insert(type, at: 0) }
+        if let type = UTType(Preferences.exportUTIIdentifier) ?? UTType(filenameExtension: Preferences.exportFileExtension) {
+            types.insert(type, at: 0)
+        }
         panel.allowedContentTypes = types
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }

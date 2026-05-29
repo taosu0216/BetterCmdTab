@@ -19,7 +19,21 @@ extension Preferences {
     static let exportKeyPrefix = "Switcher."
 
     /// File extension for exported settings documents.
-    static let exportFileExtension = "bettercmdtab"
+    static let exportFileExtension = "cmdtab"
+
+    /// Identifier of the exported UTI declared in Info.plist
+    /// (`UTExportedTypeDeclarations`). Used to drive the save/open panels so the
+    /// system appends the right extension exactly once and shows the doc icon.
+    static let exportUTIIdentifier = "pro.bettercmdtab.settings"
+
+    /// Default file name (no extension — the save panel appends `.cmdtab` from
+    /// the content type) like `bettercmdtab-settings-2026-05-29`.
+    static var exportDefaultBaseName: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return "bettercmdtab-settings-\(formatter.string(from: Date()))"
+    }
 
     enum SettingsImportError: LocalizedError {
         /// Not JSON, not our envelope, or the values block is missing.
