@@ -151,96 +151,6 @@ enum SwitcherSortOrder: String, CaseIterable {
     }
 }
 
-/// An in-panel action whose trigger key the user can rebind (#5). Each maps to
-/// one physical-key keycode in `Preferences.panelKeyBindings`; the CGEvent tap
-/// reads the keycode→action map to drive the action while the switcher is open.
-/// Raw values are persisted as the stored dictionary's keys — don't rename.
-enum PanelKeyAction: String, CaseIterable {
-    case close
-    case minimize
-    case hide
-    case quit
-
-    var displayName: String {
-        switch self {
-        case .close: return String(localized: "Close window")
-        case .minimize: return String(localized: "Minimize window")
-        case .hide: return String(localized: "Hide app")
-        case .quit: return String(localized: "Quit app")
-        }
-    }
-
-    /// Default physical keycode (kVK_ANSI_*): W, M, H, Q — the long-standing
-    /// hardcoded bindings, so existing users see no change.
-    var defaultKeyCode: Int {
-        switch self {
-        case .close: return 13     // W
-        case .minimize: return 46  // M
-        case .hide: return 4       // H
-        case .quit: return 12      // Q
-        }
-    }
-}
-
-/// A modifier+key chord for the rebindable window-management actions (#7), kept
-/// layout-independent (physical keycode) and serializable. `modifiers` is a
-/// small bitset of ⌃/⌥/⇧ (Command is excluded — it's the switcher's hold key,
-/// always down while the panel is open). Stored as `"<keyCode>:<modifiers>"`.
-struct KeyCombo: Equatable {
-    var keyCode: Int
-    /// Bitset: control = 1, option = 2, shift = 4.
-    var modifiers: Int
-
-    static let controlBit = 1
-    static let optionBit = 2
-    static let shiftBit = 4
-
-    var serialized: String { "\(keyCode):\(modifiers)" }
-
-    init(keyCode: Int, modifiers: Int) {
-        self.keyCode = keyCode
-        self.modifiers = modifiers
-    }
-
-    init?(serialized: String) {
-        let parts = serialized.split(separator: ":")
-        guard parts.count == 2, let k = Int(parts[0]), let m = Int(parts[1]) else { return nil }
-        self.keyCode = k
-        self.modifiers = m
-    }
-}
-
-/// A window-management action whose trigger chord the user can rebind (#7).
-/// Defaults are ⌃←/→/↑/↓; the CGEvent tap reads the chord→action map to arrange
-/// the highlighted window while the switcher is open. Raw values are persisted
-/// as the stored dictionary's keys — don't rename.
-enum WindowMgmtAction: String, CaseIterable {
-    case tileLeft
-    case tileRight
-    case maximize
-    case center
-
-    var displayName: String {
-        switch self {
-        case .tileLeft: return String(localized: "Tile left half")
-        case .tileRight: return String(localized: "Tile right half")
-        case .maximize: return String(localized: "Maximize")
-        case .center: return String(localized: "Center")
-        }
-    }
-
-    /// Default chord: Control + arrow (kVK_LeftArrow 123 / Right 124 / Up 126 /
-    /// Down 125), matching the previously-hardcoded bindings.
-    var defaultCombo: KeyCombo {
-        switch self {
-        case .tileLeft: return KeyCombo(keyCode: 123, modifiers: KeyCombo.controlBit)
-        case .tileRight: return KeyCombo(keyCode: 124, modifiers: KeyCombo.controlBit)
-        case .maximize: return KeyCombo(keyCode: 126, modifiers: KeyCombo.controlBit)
-        case .center: return KeyCombo(keyCode: 125, modifiers: KeyCombo.controlBit)
-        }
-    }
-}
-
 /// The subset of windows a scoped custom shortcut opens the switcher onto.
 /// Each user-defined scoped shortcut (Shortcuts settings) carries one of these;
 /// triggering it opens the switcher already filtered to that subset instead of
@@ -498,8 +408,6 @@ final class Preferences: ObservableObject {
         static let currentSpaceOnly = "Switcher.currentSpaceOnly"
         static let directActivationBindings = "Switcher.directActivationBindings"
         static let scopedShortcutScopes = "Switcher.scopedShortcutScopes"
-        static let panelKeyBindings = "Switcher.panelKeyBindings"
-        static let windowMgmtBindings = "Switcher.windowMgmtBindings"
         static let hoverActionsEnabled = "Switcher.hoverActionsEnabled"
         static let hoverShowClose = "Switcher.hoverShowClose"
         static let hoverShowMinimize = "Switcher.hoverShowMinimize"
@@ -885,35 +793,9 @@ final class Preferences: ObservableObject {
         }
     }
 
-    /// Rebindable in-panel action keys (#5): `PanelKeyAction` → physical keycode.
-    /// The CGEvent tap reads this (via `SwitcherController.pushPanelKeyBindings`)
-    /// to drive close/minimize/hide/quit while the switcher is open. Always
-    /// normalized to contain every action, defaulting any missing one to its
-    /// W/M/H/Q keycode. Persisted as a `[String: Int]` dictionary.
-    @Published var panelKeyBindings: [PanelKeyAction: Int] {
-        didSet {
-            let normalized = Self.normalizePanelKeys(panelKeyBindings)
-            if normalized != panelKeyBindings { panelKeyBindings = normalized; return }
-            guard oldValue != panelKeyBindings else { return }
-            let raw = Dictionary(uniqueKeysWithValues: panelKeyBindings.map { ($0.key.rawValue, $0.value) })
-            UserDefaults.standard.set(raw, forKey: Keys.panelKeyBindings)
-        }
-    }
-
-    /// Rebindable window-management chords (#7): `WindowMgmtAction` → `KeyCombo`.
-    /// The CGEvent tap reads this (via `SwitcherController.pushWindowMgmtBindings`)
-    /// to tile/maximize/center the highlighted window while the switcher is open.
-    /// Always normalized to contain every action, defaulting any missing one to
-    /// its ⌃-arrow combo. Persisted as a `[String: String]` dictionary.
-    @Published var windowMgmtBindings: [WindowMgmtAction: KeyCombo] {
-        didSet {
-            let normalized = Self.normalizeWindowMgmt(windowMgmtBindings)
-            if normalized != windowMgmtBindings { windowMgmtBindings = normalized; return }
-            guard oldValue != windowMgmtBindings else { return }
-            let raw = Dictionary(uniqueKeysWithValues: windowMgmtBindings.map { ($0.key.rawValue, $0.value.serialized) })
-            UserDefaults.standard.set(raw, forKey: Keys.windowMgmtBindings)
-        }
-    }
+    // In-panel action keys (#5) and window-management chords (#7) are
+    // BetterShortcuts names now (`BetterShortcuts.Name.panelActionKeys` /
+    // `.windowMgmt`); the package owns their recording + persistence.
 
     /// Master switch for the hover action buttons shown on each switcher row.
     /// Default off. Per-button visibility lives in `hoverShow*`.
@@ -1023,47 +905,6 @@ final class Preferences: ObservableObject {
         normalizeScopes((raw ?? []).map { SwitchScope(rawValue: $0) ?? .allAppsAllSpaces })
     }
 
-    /// Ensure every `PanelKeyAction` has a binding, filling any missing one with
-    /// its default keycode. Unknown stored keys are dropped.
-    static func normalizePanelKeys(_ value: [PanelKeyAction: Int]) -> [PanelKeyAction: Int] {
-        var out: [PanelKeyAction: Int] = [:]
-        for action in PanelKeyAction.allCases {
-            out[action] = value[action] ?? action.defaultKeyCode
-        }
-        return out
-    }
-
-    /// Parse the stored `[String: Int]` dictionary into `[PanelKeyAction: Int]`,
-    /// normalized (missing actions default to W/M/H/Q).
-    static func loadPanelKeys(_ raw: [String: Int]?) -> [PanelKeyAction: Int] {
-        var parsed: [PanelKeyAction: Int] = [:]
-        for (k, v) in raw ?? [:] {
-            if let action = PanelKeyAction(rawValue: k) { parsed[action] = v }
-        }
-        return normalizePanelKeys(parsed)
-    }
-
-    /// Ensure every `WindowMgmtAction` has a chord, filling any missing one with
-    /// its ⌃-arrow default. Unknown stored keys are dropped.
-    static func normalizeWindowMgmt(_ value: [WindowMgmtAction: KeyCombo]) -> [WindowMgmtAction: KeyCombo] {
-        var out: [WindowMgmtAction: KeyCombo] = [:]
-        for action in WindowMgmtAction.allCases {
-            out[action] = value[action] ?? action.defaultCombo
-        }
-        return out
-    }
-
-    /// Parse the stored `[String: String]` dictionary into
-    /// `[WindowMgmtAction: KeyCombo]`, normalized (missing/garbled → ⌃-arrow).
-    static func loadWindowMgmt(_ raw: [String: String]?) -> [WindowMgmtAction: KeyCombo] {
-        var parsed: [WindowMgmtAction: KeyCombo] = [:]
-        for (k, v) in raw ?? [:] {
-            if let action = WindowMgmtAction(rawValue: k), let combo = KeyCombo(serialized: v) {
-                parsed[action] = combo
-            }
-        }
-        return normalizeWindowMgmt(parsed)
-    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -1154,8 +995,6 @@ final class Preferences: ObservableObject {
         self.currentSpaceOnly = defaults.object(forKey: Keys.currentSpaceOnly) as? Bool ?? false
         self.directActivationBindings = Self.normalizeBindings(defaults.stringArray(forKey: Keys.directActivationBindings) ?? [])
         self.scopedShortcutScopes = Self.loadScopes(defaults.stringArray(forKey: Keys.scopedShortcutScopes))
-        self.panelKeyBindings = Self.loadPanelKeys(defaults.dictionary(forKey: Keys.panelKeyBindings) as? [String: Int])
-        self.windowMgmtBindings = Self.loadWindowMgmt(defaults.dictionary(forKey: Keys.windowMgmtBindings) as? [String: String])
         self.hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
         self.hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? true
         self.hoverShowMinimize = defaults.object(forKey: Keys.hoverShowMinimize) as? Bool ?? true
@@ -1224,8 +1063,6 @@ final class Preferences: ObservableObject {
         currentSpaceOnly = defaults.object(forKey: Keys.currentSpaceOnly) as? Bool ?? false
         directActivationBindings = Self.normalizeBindings(defaults.stringArray(forKey: Keys.directActivationBindings) ?? [])
         scopedShortcutScopes = Self.loadScopes(defaults.stringArray(forKey: Keys.scopedShortcutScopes))
-        panelKeyBindings = Self.loadPanelKeys(defaults.dictionary(forKey: Keys.panelKeyBindings) as? [String: Int])
-        windowMgmtBindings = Self.loadWindowMgmt(defaults.dictionary(forKey: Keys.windowMgmtBindings) as? [String: String])
 
         hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
         hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? true

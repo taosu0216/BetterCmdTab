@@ -32,10 +32,59 @@ extension BetterShortcuts.Name {
 
     /// The raw-value prefix shared by every `scopedSwitch` slot name.
     static let scopedSwitchPrefix = "scopedSwitch"
+
+    // MARK: In-panel action keys (tap-driven, like the switcher triggers)
+
+    /// Keys that act on the highlighted window WHILE the switcher is open
+    /// (close / minimize / hide / quit). Like `switchApps`/`switchWindows`
+    /// these are stored by BetterShortcuts but have NO `onKeyDown` handler, so
+    /// the package never registers a global Carbon hotkey (binding ⌘W must not
+    /// hijack Close everywhere). The CGEvent tap reads the stored shortcut's
+    /// keycode and matches it while switching. Defaults are ⌘W/⌘M/⌘H/⌘Q — ⌘ is
+    /// held the whole time the switcher is open, so it reads naturally.
+    static let panelClose = Self("panelClose", default: .init(.w, modifiers: .command))
+    static let panelMinimize = Self("panelMinimize", default: .init(.m, modifiers: .command))
+    static let panelHide = Self("panelHide", default: .init(.h, modifiers: .command))
+    static let panelQuit = Self("panelQuit", default: .init(.q, modifiers: .command))
+
+    /// All in-panel action-key names, paired with a stable label.
+    static let panelActionKeys: [(name: Self, title: String)] = [
+        (.panelClose, "Close window"),
+        (.panelMinimize, "Minimize window"),
+        (.panelHide, "Hide app"),
+        (.panelQuit, "Quit app"),
+    ]
+
+    // MARK: Window-management hotkeys (global + in-switcher)
+
+    /// Arrange the focused/highlighted window — tile to a half, maximize, or
+    /// center. These ARE live global hotkeys (a `BetterShortcuts.onKeyDown`
+    /// handler in `WindowManagement` fires them on the frontmost window when the
+    /// switcher is closed). While the switcher is open the CGEvent tap consumes
+    /// the same chord first and arranges the highlighted window instead, so the
+    /// global handler doesn't double-fire. Defaults are ⌃⌘ + arrows.
+    static let windowTileLeft = Self("windowTileLeft", default: .init(.leftArrow, modifiers: [.control, .command]))
+    static let windowTileRight = Self("windowTileRight", default: .init(.rightArrow, modifiers: [.control, .command]))
+    static let windowMaximize = Self("windowMaximize", default: .init(.upArrow, modifiers: [.control, .command]))
+    static let windowCenter = Self("windowCenter", default: .init(.downArrow, modifiers: [.control, .command]))
+
+    /// All window-management names, paired with a stable label.
+    static let windowMgmt: [(name: Self, title: String)] = [
+        (.windowTileLeft, "Tile left half"),
+        (.windowTileRight, "Tile right half"),
+        (.windowMaximize, "Maximize"),
+        (.windowCenter, "Center"),
+    ]
 }
 
 extension BetterShortcuts.Name: @retroactive CaseIterable {
-    public static var allCases: [Self] { [.switchApps, .switchWindows] + directActivate + scopedSwitch }
+    public static var allCases: [Self] {
+        [.switchApps, .switchWindows]
+            + directActivate
+            + scopedSwitch
+            + panelActionKeys.map(\.name)
+            + windowMgmt.map(\.name)
+    }
 
     /// Human-readable label used by the recorder's conflict alert.
     var displayName: String {
@@ -50,6 +99,12 @@ extension BetterShortcuts.Name: @retroactive CaseIterable {
             if rawValue.hasPrefix(Self.scopedSwitchPrefix) {
                 let slot = rawValue.dropFirst(Self.scopedSwitchPrefix.count)
                 return "Scoped shortcut \(slot)"
+            }
+            if let panel = Self.panelActionKeys.first(where: { $0.name == self }) {
+                return panel.title
+            }
+            if let wm = Self.windowMgmt.first(where: { $0.name == self }) {
+                return wm.title
             }
             return rawValue
         }

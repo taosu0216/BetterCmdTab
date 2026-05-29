@@ -454,6 +454,24 @@ enum Activator {
         }
     }
 
+    /// Arrange the frontmost app's focused window on its current screen. Backs
+    /// the global window-management hotkeys (#7) when the switcher is closed.
+    /// No-op if there's no frontmost app, it's us, or it has no focused window.
+    static func arrangeFrontmostWindow(_ arrangement: WindowArrangement) {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != getpid() else { return }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(axApp, 0.25)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+              let windowValue = focused,
+              CFGetTypeID(windowValue) == AXUIElementGetTypeID() else { return }
+        let window = windowValue as! AXUIElement
+        DispatchQueue.main.async {
+            Self.applyArrangement(window: window, arrangement: arrangement)
+        }
+    }
+
     private static func applyArrangement(window: AXUIElement, arrangement: WindowArrangement) {
         guard !NSScreen.screens.isEmpty else { return }
         let mainHeight = NSScreen.screens[0].frame.maxY

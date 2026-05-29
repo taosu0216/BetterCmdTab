@@ -300,25 +300,24 @@ final class SwitcherController: SwitcherViewDelegate {
         // Scoped-shortcut triggers open the switcher pre-filtered (#3).
         ScopedSwitch.onTrigger = { [weak self] scope in self?.openScoped(scope) }
         pushHotkeyConfig()
-        // Rebindable in-panel action keys (#5): push the map and re-push on change.
+        // In-panel action keys (#5) and window-management chords (#7) are
+        // BetterShortcuts names; derive the tap's keycode maps from their stored
+        // shortcuts now. The shortcutByNameDidChange subscription below re-runs
+        // these whenever any shortcut changes.
         pushPanelKeyBindings()
-        Preferences.shared.$panelKeyBindings
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.pushPanelKeyBindings() }
-            .store(in: &cancellables)
-        // Rebindable window-management chords (#7): same pattern.
         pushWindowMgmtBindings()
-        Preferences.shared.$windowMgmtBindings
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.pushWindowMgmtBindings() }
-            .store(in: &cancellables)
         // The BetterShortcuts recorders persist the user's trigger choices and
-        // post this notification on change — re-derive the tap config live.
+        // post this notification on change — re-derive the tap config and the
+        // in-panel (#5) / window-management (#7) keycode maps live.
         NotificationCenter.default.publisher(
             for: Notification.Name("BetterShortcuts_shortcutByNameDidChange")
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in self?.pushHotkeyConfig() }
+        .sink { [weak self] _ in
+            self?.pushHotkeyConfig()
+            self?.pushPanelKeyBindings()
+            self?.pushWindowMgmtBindings()
+        }
         .store(in: &cancellables)
         // Put the tap into recording mode while a recorder is capturing so the
         // chord is forwarded to the recorder instead of triggering the switcher.
@@ -468,40 +467,53 @@ final class SwitcherController: SwitcherViewDelegate {
         mru.bump(targetPid)
     }
 
-    /// Translate the user's `panelKeyBindings` (action → keycode) into the tap's
-    /// keycode → action map and push it. Re-derived on launch and on every change.
+    /// Derive the in-panel action-key map (#5) from the BetterShortcuts
+    /// `panelActionKeys` bindings and push it to the tap. Only the *keycode* is
+    /// used — the chord's modifier is irrelevant in-panel (⌘ is held the whole
+    /// time the switcher is open), so e.g. a stored ⌘W matches the physical W
+    /// while switching. Re-derived on launch and on any shortcut change.
     private func pushPanelKeyBindings() {
         var map: [Int64: HotkeyTap.PanelActionKey] = [:]
-        for (action, keyCode) in Preferences.shared.panelKeyBindings {
-            let tapAction: HotkeyTap.PanelActionKey
-            switch action {
-            case .close: tapAction = .close
-            case .minimize: tapAction = .minimize
-            case .hide: tapAction = .hide
-            case .quit: tapAction = .quit
-            }
-            map[Int64(keyCode)] = tapAction
+        let pairs: [(BetterShortcuts.Name, HotkeyTap.PanelActionKey)] = [
+            (.panelClose, .close),
+            (.panelMinimize, .minimize),
+            (.panelHide, .hide),
+            (.panelQuit, .quit),
+        ]
+        for (name, action) in pairs {
+            guard let shortcut = BetterShortcuts.getShortcut(for: name) else { continue }
+            map[Int64(shortcut.carbonKeyCode)] = action
         }
         hotkey.setPanelKeyBindings(map)
     }
 
-    /// Translate the user's `windowMgmtBindings` (action → KeyCombo) into the
-    /// tap's packed-chord → Event map and push it. Re-derived on launch and on
-    /// every change.
+    /// Derive the window-management chord map (#7) from the BetterShortcuts
+    /// `windowMgmt` bindings and push it to the tap. The tap matches these while
+    /// the switcher is open (arranging the highlighted window); the same bindings
+    /// also fire globally via `WindowManagement` when the switcher is closed.
+    /// Command is dropped from the chord bits — the switcher holds ⌘, so a stored
+    /// ⌃⌘← reads as ⌃← inside the panel. Re-derived on launch and on any change.
     private func pushWindowMgmtBindings() {
         var map: [Int: HotkeyTap.Event] = [:]
-        for (action, combo) in Preferences.shared.windowMgmtBindings {
-            let event: HotkeyTap.Event
-            switch action {
-            case .tileLeft: event = .tileLeft
-            case .tileRight: event = .tileRight
-            case .maximize: event = .maximizeWindow
-            case .center: event = .centerWindow
-            }
-            // A chord with no modifier would hijack a bare key; the tap ignores
-            // modBits == 0, so skip those defensively here too.
-            guard combo.modifiers != 0 else { continue }
-            map[HotkeyTap.wmChordKey(keyCode: Int64(combo.keyCode), modBits: combo.modifiers)] = event
+        let pairs: [(BetterShortcuts.Name, HotkeyTap.Event)] = [
+            (.windowTileLeft, .tileLeft),
+            (.windowTileRight, .tileRight),
+            (.windowMaximize, .maximizeWindow),
+            (.windowCenter, .centerWindow),
+        ]
+        for (name, event) in pairs {
+            guard let shortcut = BetterShortcuts.getShortcut(for: name) else { continue }
+            // `carbonModifiers` is a Carbon bitmask. Pack ⌃/⌥/⇧ into the tap's
+            // chord bits (⌘ excluded — held by the switcher). A chord that's
+            // ⌘-only in-panel (no other modifier) would collide with a bare key,
+            // so skip it.
+            let m = shortcut.carbonModifiers
+            var bits = 0
+            if m & controlKey != 0 { bits |= 1 }
+            if m & optionKey != 0 { bits |= 2 }
+            if m & shiftKey != 0 { bits |= 4 }
+            guard bits != 0 else { continue }
+            map[HotkeyTap.wmChordKey(keyCode: Int64(shortcut.carbonKeyCode), modBits: bits)] = event
         }
         hotkey.setWindowMgmtBindings(map)
     }

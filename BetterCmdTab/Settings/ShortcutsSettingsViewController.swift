@@ -16,12 +16,6 @@ final class ShortcutsSettingsViewController: SettingsTabViewController {
     private var scopePopups: [NSPopUpButton] = []
     private let scopeOptions: [SwitchScope] = SwitchScope.allCases
 
-    // In-panel action keys (#5): one bare-key capture button per action.
-    private var panelKeyButtons: [PanelKeyAction: KeyCaptureButton] = [:]
-
-    // Window-management chords (#7): one modifier+key capture button per action.
-    private var windowMgmtButtons: [WindowMgmtAction: KeyComboCaptureButton] = [:]
-
     override func setupContent() {
         // Switching section — the core ⌘Tab triggers. The trigger must include a
         // hold modifier (⌘/⌥/⌃); Shift is reserved for stepping backwards and is
@@ -92,49 +86,37 @@ final class ShortcutsSettingsViewController: SettingsTabViewController {
             scopePopups.append(popup)
         }
 
-        // In-panel keys section — rebind the action keys used while the switcher
-        // is open (close / minimize / hide / quit).
+        // In-panel keys section — the keys that act on the highlighted window
+        // while the switcher is open (close / minimize / hide / quit). Recorded
+        // with BetterShortcuts; only the key is used in-panel (⌘ is held the
+        // whole time), so e.g. ⌘W reads as W while switching. No global hotkey is
+        // registered for these — there's no onKeyDown handler — so binding ⌘W
+        // doesn't steal Close in other apps.
         let panelKeys = addSection(title: "In-panel keys", anchor: SettingsAnchor.panelKeys)
         addRow(
             to: panelKeys,
             title: "Action keys while switching",
-            subtitle: "Rebind the keys that act on the highlighted window while the switcher is open. ⌥ with Quit still force-quits.",
+            subtitle: "These act on the highlighted window while the switcher is open. ⌘ is held the whole time, so the modifier you record is ignored in-panel.",
             searchItemID: SearchID.panelKeys
         )
-        let bindings = Preferences.shared.panelKeyBindings
-        for action in PanelKeyAction.allCases {
-            let code = bindings[action] ?? action.defaultKeyCode
-            let button = KeyCaptureButton(keyCode: code)
-            button.onCapture = { [weak self] newCode in self?.setPanelKey(action, newCode) }
-            panelKeyButtons[action] = button
-            addRow(to: panelKeys, title: action.displayName, accessory: button)
+        for (name, title) in BetterShortcuts.Name.panelActionKeys {
+            addRow(to: panelKeys, title: title, accessory: BetterShortcuts.RecorderCocoa(for: name))
         }
-        let resetButton = NSButton(title: "Reset to defaults", target: self, action: #selector(resetPanelKeys))
-        resetButton.bezelStyle = .rounded
-        resetButton.controlSize = .small
-        addRow(to: panelKeys, title: "Defaults", subtitle: "Restore W / M / H / Q.", accessory: resetButton)
 
-        // Window management section — rebind the chords that arrange the
-        // highlighted window while the switcher is open (default ⌃ + arrows).
+        // Window management section — tile / maximize / center. These ARE global
+        // shortcuts (they work whether the switcher is open or closed); when the
+        // switcher is open they arrange the highlighted window, otherwise the
+        // frontmost app's focused window. Default ⌃⌘ + arrows.
         let windowMgmt = addSection(title: "Window management", anchor: SettingsAnchor.windowMgmt)
         addRow(
             to: windowMgmt,
-            title: "Arrange the highlighted window",
-            subtitle: "Tile, maximize, or center the highlighted window while the switcher is open. Each chord needs a modifier (⌃/⌥/⇧); ⌘ is held by the switcher.",
+            title: "Arrange the focused window",
+            subtitle: "Tile, maximize, or center the focused window — or the highlighted one while the switcher is open. Works system-wide.",
             searchItemID: SearchID.windowMgmt
         )
-        let wmBindings = Preferences.shared.windowMgmtBindings
-        for action in WindowMgmtAction.allCases {
-            let combo = wmBindings[action] ?? action.defaultCombo
-            let button = KeyComboCaptureButton(keyCode: combo.keyCode, modifiers: combo.modifiers)
-            button.onCapture = { [weak self] code, mods in self?.setWindowMgmt(action, code, mods) }
-            windowMgmtButtons[action] = button
-            addRow(to: windowMgmt, title: action.displayName, accessory: button)
+        for (name, title) in BetterShortcuts.Name.windowMgmt {
+            addRow(to: windowMgmt, title: title, accessory: BetterShortcuts.RecorderCocoa(for: name))
         }
-        let wmReset = NSButton(title: "Reset to defaults", target: self, action: #selector(resetWindowMgmt))
-        wmReset.bezelStyle = .rounded
-        wmReset.controlSize = .small
-        addRow(to: windowMgmt, title: "Defaults", subtitle: "Restore ⌃ + arrow keys.", accessory: wmReset)
     }
 
     override func viewWillAppear() {
@@ -207,39 +189,6 @@ final class ShortcutsSettingsViewController: SettingsTabViewController {
         Preferences.shared.scopedShortcutScopes = scopes
     }
 
-    // MARK: - In-panel keys
-
-    private func setPanelKey(_ action: PanelKeyAction, _ keyCode: Int) {
-        var bindings = Preferences.shared.panelKeyBindings
-        bindings[action] = keyCode
-        Preferences.shared.panelKeyBindings = bindings
-    }
-
-    @objc private func resetPanelKeys() {
-        var bindings: [PanelKeyAction: Int] = [:]
-        for action in PanelKeyAction.allCases {
-            bindings[action] = action.defaultKeyCode
-            panelKeyButtons[action]?.setKeyCode(action.defaultKeyCode)
-        }
-        Preferences.shared.panelKeyBindings = bindings
-    }
-
-    // MARK: - Window management chords
-
-    private func setWindowMgmt(_ action: WindowMgmtAction, _ keyCode: Int, _ modifiers: Int) {
-        var bindings = Preferences.shared.windowMgmtBindings
-        bindings[action] = KeyCombo(keyCode: keyCode, modifiers: modifiers)
-        Preferences.shared.windowMgmtBindings = bindings
-    }
-
-    @objc private func resetWindowMgmt() {
-        var bindings: [WindowMgmtAction: KeyCombo] = [:]
-        for action in WindowMgmtAction.allCases {
-            bindings[action] = action.defaultCombo
-            windowMgmtButtons[action]?.setCombo(keyCode: action.defaultCombo.keyCode, modifiers: action.defaultCombo.modifiers)
-        }
-        Preferences.shared.windowMgmtBindings = bindings
-    }
 
     private static func appName(forBundleID bundleID: String) -> String? {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }

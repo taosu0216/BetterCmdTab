@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BetterShortcuts.installDisplayNames()
         DirectActivation.installHandlers()
         ScopedSwitch.installHandlers()
+        WindowManagement.installHandlers()
         #if DEBUG
         // In Debug builds always show the menu bar icon, regardless of the
         // saved preference — otherwise a hidden icon leaves no way to reach
