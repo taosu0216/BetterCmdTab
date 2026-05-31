@@ -126,35 +126,6 @@ const featureGroups: Array<{ label: string; rows: Array<[string, string]> }> = [
   },
 ];
 
-const shortcuts: Array<[string, string]> = [
-  ["Cmd Tab", "Next app"],
-  ["Cmd Tab + Shift", "Previous app"],
-  ["Cmd `", "Next window of current app"],
-  ["Cmd Shift `", "Previous window of current app"],
-  ["Cmd letters", "Jump to app starting with that letter"],
-  ["Cmd /", "Toggle search — filter or launch any app"],
-  ["Cmd Q", "Quit the highlighted app"],
-  ["Cmd Option Q", "Force-quit the highlighted app (SIGKILL — for hung apps)"],
-  ["Cmd W", "Close the highlighted window"],
-  ["Cmd M", "Minimize the highlighted window"],
-  ["Cmd H", "Hide / unhide the highlighted app"],
-  ["Cmd \\", "Drill into the highlighted row's tab group (browsers, Finder, Terminal)"],
-  ["Cmd Option arrows", "Move the highlighted window to the adjacent display"],
-  ["Cmd Esc", "Cancel without activating"],
-  ["Release Cmd", "Activate the highlighted row"],
-];
-
-const windowShortcuts: Array<[string, string]> = [
-  ["Ctrl Cmd ←", "Tile to the left half"],
-  ["Ctrl Cmd →", "Tile to the right half"],
-  ["Ctrl Cmd [", "Tile to the top-left corner"],
-  ["Ctrl Cmd ]", "Tile to the top-right corner"],
-  ["Ctrl Cmd ;", "Tile to the bottom-left corner"],
-  ["Ctrl Cmd '", "Tile to the bottom-right corner"],
-  ["Ctrl Cmd ↑", "Maximize"],
-  ["Ctrl Cmd ↓", "Center"],
-];
-
 // Answer strings are kept byte-for-byte identical to the FAQPage JSON-LD in
 // index.html — Google only grants the FAQ rich result when the on-page text
 // matches the structured data, so edit both sides together.
@@ -326,30 +297,12 @@ function Shots() {
   );
 }
 
-function Keys({ combo }: { combo: string }) {
+function Rows({ rows }: { rows: Array<[string, string]> }) {
   return (
-    <span className="keys">
-      {combo.split(" ").map((token, i) =>
-        token === "+" ? (
-          <span key={`sep-${i}`} className="key-sep">
-            +
-          </span>
-        ) : (
-          <kbd key={`${token}-${i}`} className="kbd">
-            {token}
-          </kbd>
-        ),
-      )}
-    </span>
-  );
-}
-
-function Rows({ rows, combo }: { rows: Array<[string, string]>; combo?: boolean }) {
-  return (
-    <motion.ul className={combo ? "grid keys-grid" : "grid"} variants={stagger}>
+    <motion.ul className="grid" variants={stagger}>
       {rows.map(([key, desc]) => (
         <motion.li key={key} variants={reveal} whileHover={{ x: 4 }}>
-          {combo ? <Keys combo={key} /> : <span className="key">{key}</span>}
+          <span className="key">{key}</span>
           <span className="desc">{desc}</span>
         </motion.li>
       ))}
@@ -563,23 +516,6 @@ export function Home() {
               </motion.div>
             ))}
           </motion.div>
-        </motion.section>
-
-        <motion.section {...inView}>
-          <motion.h2 variants={reveal}>Shortcuts</motion.h2>
-          <Rows rows={shortcuts} combo />
-          <motion.p className="muted note" variants={reveal}>
-            Hold Cmd, tap to step through, release to activate.
-          </motion.p>
-        </motion.section>
-
-        <motion.section {...inView}>
-          <motion.h2 variants={reveal}>Window management</motion.h2>
-          <Rows rows={windowShortcuts} combo />
-          <motion.p className="muted note" variants={reveal}>
-            Global — fire anywhere, no switcher. Defaults shown, all rebindable. With cycle widths
-            on, press a tile key again to step ½ → ⅔ → ⅓.
-          </motion.p>
         </motion.section>
 
         <motion.section {...inView}>

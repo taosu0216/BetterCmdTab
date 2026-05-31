@@ -19,7 +19,6 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 <sub>
   <a href="#install">Install</a> ·
   <a href="#features">Features</a> ·
-  <a href="#shortcuts">Shortcuts</a> ·
   <a href="#build-from-source">Build</a> ·
   <a href="#contributing">Contribute</a>
 </sub>
@@ -71,6 +70,11 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 
 ## Install
 
+### Requirements
+
+- macOS 13.0 (Ventura) or newer
+- Accessibility permission
+
 ### Download
 
 Grab the latest signed `.dmg` from the [Releases page](https://github.com/rokartur/BetterCmdTab/releases), open it, drag `BetterCmdTab.app` to `/Applications`, and launch.
@@ -86,53 +90,6 @@ xcodebuild -scheme "BetterCmdTab Release" -configuration Release build
 ```
 
 Requires Xcode 16+ and the macOS 26 SDK to build the Liquid Glass code paths. The deployment target is macOS 13.0 — older SDKs fall back to NSVisualEffectView automatically.
-
-## Shortcuts
-
-While Cmd is held:
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd + Tab` | Next app |
-| `Cmd + Tab, Shift ` | Previous app |
-| `` Cmd + ` `` | Next window of current app |
-| `` Cmd + Shift + ` `` | Previous window of current app |
-| `Cmd + ←` / `Cmd + →` | Spatial navigation (Grid layout) |
-| `Cmd + ↑` / `Cmd + ↓` | Vertical navigation |
-| `Cmd + <letter(s)>` | Jump to app starting with that letter |
-| `Cmd + /` | Toggle the fuzzy search bar (filter running + launch installed apps) |
-| `Cmd + Q` | Quit the highlighted app |
-| `Cmd + Option + Q` | Force-quit the highlighted app (SIGKILL — for hung apps) |
-| `Cmd + W` | Close the highlighted window |
-| `Cmd + M` | Minimize the highlighted window |
-| `Cmd + H` | Hide / unhide the highlighted app |
-| `\` | Drill into the highlighted row's tab group (browsers, Finder, Terminal) |
-| `Cmd + Option + ←/→/↑/↓` | Move the highlighted window to the adjacent display |
-| `Cmd + Esc` | Cancel switcher without activating anything |
-| `Release Cmd` | Activate the highlighted row |
-
-### Window management (global — no switcher)
-
-These fire anywhere; defaults shown, all rebindable in Settings → Shortcuts.
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl + Cmd + ←` / `→` | Tile to the left / right half |
-| `Ctrl + Cmd + [` / `]` | Tile to the top-left / top-right corner |
-| `Ctrl + Cmd + ;` / `'` | Tile to the bottom-left / bottom-right corner |
-| `Ctrl + Cmd + ↑` | Maximize |
-| `Ctrl + Cmd + ↓` | Center |
-
-With **cycle tile widths** on, pressing a tile shortcut again steps the window through ½ → ⅔ → ⅓ of the screen.
-
-The `Cmd + Tab` activation hotkey is configurable in Settings; you can also trigger the switcher with a three-finger trackpad swipe. Separately, you can assign a global shortcut per app slot (9 slots) to jump straight to (or launch) a chosen app without opening the switcher, or a **scoped** shortcut that opens the switcher pre-filtered to all windows, the current Space, the current app, or minimized windows.
-
-## Requirements
-
-- macOS 13.0 (Ventura) or newer
-- Accessibility permission
-
-Liquid Glass rendering requires macOS 26. On 13–15 you get NSVisualEffectView with `.hudWindow` material, which looks similar enough.
 
 ## Privacy
 
