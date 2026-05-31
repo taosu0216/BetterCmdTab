@@ -12,6 +12,8 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
     private let letterLabel = NSTextField(labelWithString: "")
     private let iconView = NSImageView()
     private let nameLabel = NSTextField(labelWithString: "")
+    private let badgePill = NSView()
+    private let badgeLabel = NSTextField(labelWithString: "")
 
     private var metrics: SwitcherMetrics = .baseline
     private var accent: NSColor = .controlAccentColor
@@ -85,6 +87,24 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         nameLabel.isEditable = false
         nameLabel.isSelectable = false
         addSubview(nameLabel)
+
+        // Count badge — sits beside the title (never over the thumbnail).
+        badgePill.wantsLayer = true
+        badgePill.layer?.cornerCurve = .continuous
+        badgePill.layer?.backgroundColor = NSColor.systemRed.cgColor
+        badgePill.isHidden = true
+        addSubview(badgePill)
+
+        badgeLabel.alignment = .center
+        badgeLabel.lineBreakMode = .byClipping
+        badgeLabel.maximumNumberOfLines = 1
+        badgeLabel.usesSingleLineMode = true
+        badgeLabel.textColor = .white
+        badgeLabel.drawsBackground = false
+        badgeLabel.isBezeled = false
+        badgeLabel.isEditable = false
+        badgeLabel.isSelectable = false
+        badgePill.addSubview(badgeLabel)
 
         // Last, so the hover bar floats above the thumbnail.
         addSubview(actionBar)
@@ -170,6 +190,15 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         // tabs always show their title — it's the only thing distinguishing one
         // tab tile from another (they share the parent window).
         nameLabel.stringValue = (Preferences.shared.showWindowTitleLabel || row.browserTab != nil) ? row.displayTitle : ""
+
+        // Dock/notification count badge — shown beside the title, never over the
+        // thumbnail. Suppressed for placeholder/dialog rows and for browser-tab
+        // rows (the count is per-app, so it would repeat identically on every tab).
+        let badge = (row.isPlaceholder || isDialog || row.browserTab != nil)
+            ? nil
+            : DockBadgeReader.shared.badge(forBundleID: row.bundleIdentifier)
+        badgeLabel.stringValue = badge ?? ""
+        badgePill.isHidden = (badge == nil)
 
         // Resolve the window id and ask for (or reuse) its live thumbnail. Rows
         // without a real window (windowless apps, launchables, recents) keep the
@@ -288,9 +317,20 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
             letterLabel.frame = .zero
         }
 
-        // Label row: small app icon + window title, centered as a group.
+        // Label row: small app icon + window title (+ optional count badge),
+        // centered as a group.
         let labelAreaH = m.previewLabelArea
         let iconSize = min(m.previewIconSize, labelAreaH)
+
+        // Count badge sits to the right of the title — a small circle, noticeably
+        // smaller than the app icon (a notification badge, not an icon-sized
+        // disc). The count font shrinks to fit rather than the badge widening into
+        // a pill. Reserve its slot so icon + title + badge stay centered together.
+        let badgeVisible = !badgePill.isHidden
+        let badgeSize = max(9, round(iconSize * 0.62))
+        let badgeGap: CGFloat = badgeVisible ? 4 : 0
+        let badgeSlot = badgeVisible ? badgeGap + badgeSize : 0
+
         // Measure the title width with a string-metrics query rather than
         // `nameLabel.sizeToFit()`, which lays out and resizes the whole
         // NSTextField just to read a width that's immediately clamped below.
@@ -299,8 +339,8 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         // the end of this method, so the skipped sizeToFit mutates nothing used.
         let measureFont = nameLabel.font ?? NSFont.systemFont(ofSize: m.previewNameFontSize, weight: .medium)
         let textW = (nameLabel.stringValue as NSString).size(withAttributes: [.font: measureFont]).width
-        let nameW = min(ceil(textW), w - iconSize - 6)
-        let groupW = iconSize + 4 + nameW
+        let nameW = min(ceil(textW), w - iconSize - 6 - badgeSlot)
+        let groupW = iconSize + 4 + nameW + badgeSlot
         let startX = max(0, round((w - groupW) / 2))
         let rowMidY = labelAreaH / 2
         iconView.frame = NSRect(
@@ -316,6 +356,24 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
             width: max(0, nameW),
             height: nameH
         )
+        if badgeVisible {
+            // Fit the count inside the icon-sized circle: start proportional to
+            // the badge, then step the font down until a 1–3 digit count fits.
+            var badgeFont = NSFont.systemFont(ofSize: max(7, round(badgeSize * 0.7)), weight: .semibold)
+            let avail = badgeSize - 3
+            var tw = (badgeLabel.stringValue as NSString).size(withAttributes: [.font: badgeFont]).width
+            while tw > avail && badgeFont.pointSize > 7 {
+                badgeFont = NSFont.systemFont(ofSize: badgeFont.pointSize - 1, weight: .semibold)
+                tw = (badgeLabel.stringValue as NSString).size(withAttributes: [.font: badgeFont]).width
+            }
+            badgeLabel.font = badgeFont
+            let bx = nameLabel.frame.maxX + badgeGap
+            let by = round(rowMidY - badgeSize / 2)
+            badgePill.frame = NSRect(x: bx, y: by, width: badgeSize, height: badgeSize)
+            badgePill.layer?.cornerRadius = badgeSize / 2
+            let lineH = ceil(badgeFont.ascender - badgeFont.descender)
+            badgeLabel.frame = NSRect(x: 0, y: round((badgeSize - lineH) / 2), width: badgeSize, height: lineH)
+        }
 
         if !actionBar.isHidden {
             // Top-left corner of the thumbnail, inset slightly. Matches the

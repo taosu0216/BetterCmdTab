@@ -381,8 +381,9 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
 
         if !badgePill.isHidden {
             // Circle for 1–2 digits; widens into a fixed-height pill for 3+.
-            // Font stays full-size and the row never clips it.
-            let height = min(round(m.fontSize * 1.5), h - 4)
+            // Match the window-state icons' box (`statusSize`) so the badge reads
+            // at the same size as the rest of the status glyphs in the row.
+            let height = min(statusSize, h - 4)
             let font = NSFont.systemFont(ofSize: round(m.fontSize * 0.85), weight: .regular)
             badgeLabel.font = font
             let size = BadgeText.size(for: badgeLabel.stringValue, font: font, height: height)
