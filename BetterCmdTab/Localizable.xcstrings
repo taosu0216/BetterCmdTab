@@ -4939,6 +4939,34 @@
         }
       }
     },
+    "Quit BetterCmdTab" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BetterCmdTab beenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salir de BetterCmdTab"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter BetterCmdTab"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zakończ BetterCmdTab"
+          }
+        }
+      }
+    },
     "Re-enable the system's ⌘Tab and ⌘` — for example if they got stuck off after a crash. BetterCmdTab hands them back to macOS until you next relaunch it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5783,6 +5811,34 @@
         }
       }
     },
+    "Settings…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajustes…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ustawienia…"
+          }
+        }
+      }
+    },
     "Shortcuts" : {
       "localizations" : {
         "de" : {
@@ -5891,6 +5947,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pokazuj aplikacje bez okien"
+          }
+        }
+      }
+    },
+    "Show browser tabs as separate entries" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browser-Tabs als separate Einträge anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar las pestañas del navegador como entradas separadas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les onglets du navigateur comme entrées distinctes"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj karty przeglądarki jako osobne pozycje"
           }
         }
       }
@@ -6059,34 +6143,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pokazuj ostatnio zamknięte aplikacje"
-          }
-        }
-      }
-    },
-    "Show browser tabs as separate entries" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Browser-Tabs als separate Einträge anzeigen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar las pestañas del navegador como entradas separadas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher les onglets du navigateur comme entrées distinctes"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pokazuj karty przeglądarki jako osobne pozycje"
           }
         }
       }
