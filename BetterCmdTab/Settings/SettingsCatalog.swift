@@ -136,7 +136,11 @@ enum SettingsCatalog {
                 }
             },
             searchPlaceholder: String(localized: "Search"),
-            showDetailsDefaultsKey: "BetterCmdTab.showSettingsDetails"
+            showDetailsDefaultsKey: "BetterCmdTab.showSettingsDetails",
+            // 8 tabs: keep the active tab + 1 previous live and drop to active-only
+            // when the settings window loses key. Inactive tab trees are freed and
+            // rebuilt lazily on revisit, minimizing RAM for this secondary window.
+            tabUnloadPolicy: .balanced
         )
     }
 
