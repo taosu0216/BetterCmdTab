@@ -579,14 +579,12 @@ final class SwitcherView: NSView, TabStripDelegate {
         return layout
     }
 
-    /// Resolves the screen the switcher should size itself for. `window?.screen`
-    /// reflects where the panel was actually placed (set by `SwitcherPanel.present`),
-    /// so layout bounds and presentation position stay on the same display when
-    /// the panel is shown under the cursor on an external monitor. `NSScreen.main`
-    /// would otherwise leak the keyboard-focus monitor into layout math, picking
-    /// the wrong DPI / visible area when those don't match.
+    /// Returns the visible frame of the screen to size the panel for. Uses
+    /// `window?.screen` while visible (reflects actual placement); falls back to
+    /// `preferredScreen()` when ordered out, because `NSWindow.screen` is
+    /// frame-based and would otherwise return the screen from the previous open.
     private func layoutScreenFrame() -> NSRect {
-        let screen = window?.screen ?? SwitcherPanel.preferredScreen()
+        let screen = (window?.isVisible == true ? window?.screen : nil) ?? SwitcherPanel.preferredScreen()
         return screen.visibleFrame
     }
 
