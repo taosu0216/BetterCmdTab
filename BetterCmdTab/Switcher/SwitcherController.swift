@@ -1663,16 +1663,33 @@ final class SwitcherController: SwitcherViewDelegate {
         // renders the glass backdrop active). Ignore us as the "previous" app.
         let front = NSWorkspace.shared.frontmostApplication
         previousFrontmostApp = (front?.processIdentifier == getpid()) ? nil : front
-        // Capture the user's current window BEFORE `panel.present()` makes our
-        // key panel frontmost — a live read afterwards returns BetterCmdTab and
-        // window-management chords would no-op. This is the window WM acts on
-        // for the whole open session, regardless of which row is highlighted.
-        // Prefer the window `prefetchOpenFocusedWindow()` resolved off-main during
-        // the primed delay; fall back to a synchronous AX read only when that
-        // hasn't landed (e.g. gesture/scoped opens that skip the primed timer).
-        // Either way `openFocusedWindow` is assigned fresh on every reveal.
-        openFocusedWindow = prefetchedFocusedWindow ?? Activator.frontmostFocusedWindow()
+        // Capture the user's current window for window-management chords, which
+        // act on the window focused when the switcher opened (not the highlighted
+        // row), for the whole open session. Prefer what `prefetchOpenFocusedWindow()`
+        // resolved off-main during the primed delay.
+        //
+        // If that hasn't landed, do NOT fall back to a synchronous AX read here:
+        // `Activator.focusedWindow` blocks up to its 0.25s messaging timeout on a
+        // busy or cold frontmost app, and on the reveal critical path that is the
+        // main source of variable "switcher appears late" latency (App Nap was
+        // only part of it). Resolve it off-main instead and assign when it lands —
+        // WM chords only fire on later user input, by which time it's ready (and
+        // they no-op gracefully if not). `front` is the real frontmost captured
+        // above, before `panel.present()` makes our key panel frontmost.
+        openFocusedWindow = prefetchedFocusedWindow
         prefetchedFocusedWindow = nil
+        if openFocusedWindow == nil, let pid = front?.processIdentifier, pid != getpid() {
+            focusedWindowCaptureGen &+= 1
+            let gen = focusedWindowCaptureGen
+            DispatchQueue.global(qos: .userInteractive).async {
+                let window = Activator.focusedWindow(pid: pid)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, gen == self.focusedWindowCaptureGen,
+                          self.phase == .visible, self.openFocusedWindow == nil else { return }
+                    self.openFocusedWindow = window
+                }
+            }
+        }
         refreshAuxiliaryIndicators()
 
         if windowsOnlyMode, let pid = windowsOnlyPid {
