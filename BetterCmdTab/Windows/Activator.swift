@@ -554,16 +554,37 @@ enum Activator {
         }
     }
 
-    /// Hide every regular (Dock-presence) app at once, clearing the screen to the
-    /// desktop. Like pressing ⌘H in each app, but global. Skips ourselves
-    /// (accessory, no windows — `.hide()` would be a no-op) and apps already
-    /// hidden. Cheap: one `.hide()` per visible app, no AX or per-window walk.
+    /// Hide every regular (Dock-presence) app, clearing the screen to the desktop.
+    /// A single, idempotent action — NOT a toggle. Apps the user chose to keep
+    /// visible are skipped (read straight from `UserDefaults`; key mirrors
+    /// `Preferences.Keys.hideAllExcludedBundleIDs`, so the two must stay in sync).
+    ///
+    /// Finder is deliberately never hidden. macOS requires one app to stay active
+    /// and falls back to Finder; if we hide Finder (or whichever app is the last
+    /// one visible), the system immediately UN-hides another app to keep one
+    /// active — which looked like a toggle, left "one app always visible", and
+    /// broke the hide → show → hide cycle. Leaving Finder as the desktop owner
+    /// means the system never needs to un-hide anything: hiding all other apps is
+    /// stable and re-running it is a no-op (nothing left to hide).
+    ///
+    /// Frontmost app is hidden last: hiding a background (occluded) app is
+    /// invisible and doesn't change focus, so only the frontmost's hide shows —
+    /// one clean transition to the desktop.
     static func hideAllApps() {
+        let excluded = Set(UserDefaults.standard.stringArray(forKey: "Switcher.hideAllExcludedBundleIDs") ?? [])
         let selfPid = getpid()
-        for app in NSWorkspace.shared.runningApplications
-        where app.activationPolicy == .regular
-            && app.processIdentifier != selfPid
-            && !app.isHidden {
+        let frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let targets = NSWorkspace.shared.runningApplications.filter { app in
+            app.activationPolicy == .regular
+                && app.processIdentifier != selfPid
+                && app.bundleIdentifier != finderBundleID
+                && !app.isHidden
+                && !(app.bundleIdentifier.map(excluded.contains) ?? false)
+        }
+        func order(_ app: NSRunningApplication) -> Int {
+            app.processIdentifier == frontPid ? 1 : 0   // frontmost hidden last
+        }
+        for app in targets.sorted(by: { order($0) < order($1) }) {
             app.hide()
         }
     }

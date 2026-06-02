@@ -1,6 +1,118 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Apps kept visible: %lld." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sichtbar gehaltene Apps: %lld."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps que permanecen visibles: %lld."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps gardées visibles : %lld."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Widoczne aplikacje: %lld."
+          }
+        }
+      }
+    },
+    "Chosen apps stay visible when you trigger Hide all windows." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgewählte Apps bleiben sichtbar, wenn du „Alle Fenster ausblenden“ auslöst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las apps elegidas permanecen visibles al activar «Ocultar todas las ventanas»."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les apps choisies restent visibles lorsque vous déclenchez « Masquer toutes les fenêtres »."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wybrane aplikacje pozostają widoczne po uruchomieniu „Ukryj wszystkie okna”."
+          }
+        }
+      }
+    },
+    "Hide all windows hides every app except Finder. Pick apps to keep visible." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Alle Fenster ausblenden“ blendet jede App außer dem Finder aus. Wähle Apps, die sichtbar bleiben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Ocultar todas las ventanas» oculta todas las apps excepto el Finder. Elige apps que permanezcan visibles."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« Masquer toutes les fenêtres » masque toutes les apps sauf le Finder. Choisissez les apps à garder visibles."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Ukryj wszystkie okna” ukrywa każdą aplikację oprócz Findera. Wybierz aplikacje, które mają pozostać widoczne."
+          }
+        }
+      }
+    },
+    "Keep apps visible" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps sichtbar lassen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantener apps visibles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder des apps visibles"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozostaw aplikacje widoczne"
+          }
+        }
+      }
+    },
     "Bring every hidden app back." : {
       "localizations" : {
         "de" : {

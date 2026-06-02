@@ -386,6 +386,8 @@ final class Preferences: ObservableObject {
         /// Read once at launch and folded into `appExceptions` (hide = .always).
         static let legacyExcludedBundleIDs = "Switcher.excludedBundleIDs"
         static let pinnedBundleIDs = "Switcher.pinnedBundleIDs"
+        /// Bundle IDs the "Hide all windows" shortcut leaves visible.
+        static let hideAllExcludedBundleIDs = "Switcher.hideAllExcludedBundleIDs"
         static let showMinimizedWindows = "Switcher.showMinimizedWindows"
         static let showHiddenApps = "Switcher.showHiddenApps"
         static let showWindowlessApps = "Switcher.showWindowlessApps"
@@ -532,6 +534,17 @@ final class Preferences: ObservableObject {
         didSet {
             guard oldValue != pinnedBundleIDs else { return }
             UserDefaults.standard.set(pinnedBundleIDs, forKey: Keys.pinnedBundleIDs)
+        }
+    }
+
+    /// Bundle identifiers the "Hide all windows" shortcut skips, so chosen apps
+    /// stay visible while everything else is hidden. Empty by default (hide-all
+    /// covers every app except Finder, which is never hidden — it's the macOS
+    /// active-app fallback / desktop owner; see `Activator.hideAllApps`).
+    @Published var hideAllExcludedBundleIDs: [String] {
+        didSet {
+            guard oldValue != hideAllExcludedBundleIDs else { return }
+            UserDefaults.standard.set(hideAllExcludedBundleIDs, forKey: Keys.hideAllExcludedBundleIDs)
         }
     }
 
@@ -1044,6 +1057,7 @@ final class Preferences: ObservableObject {
             defaults.set(initial.map(\.dictionary), forKey: Keys.appExceptions)
         }
         self.pinnedBundleIDs = defaults.stringArray(forKey: Keys.pinnedBundleIDs) ?? []
+        self.hideAllExcludedBundleIDs = defaults.stringArray(forKey: Keys.hideAllExcludedBundleIDs) ?? []
         self.showMinimizedWindows = defaults.object(forKey: Keys.showMinimizedWindows) as? Bool ?? true
         self.showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
         self.showWindowlessApps = defaults.object(forKey: Keys.showWindowlessApps) as? Bool ?? true
@@ -1135,6 +1149,7 @@ final class Preferences: ObservableObject {
             appExceptions = []
         }
         pinnedBundleIDs = defaults.stringArray(forKey: Keys.pinnedBundleIDs) ?? []
+        hideAllExcludedBundleIDs = defaults.stringArray(forKey: Keys.hideAllExcludedBundleIDs) ?? []
 
         showMinimizedWindows = defaults.object(forKey: Keys.showMinimizedWindows) as? Bool ?? true
         showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
