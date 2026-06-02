@@ -45,6 +45,19 @@ enum WindowManagement {
                 Activator.restoreFrontmostWindowFrame()
             }
         }
+        // Global hide-all / show-all. These act on every app, not the frontmost
+        // window, so they're not in `arrangementByName` and not matched by the
+        // CGEvent tap — plain global hotkeys fired straight from BetterShortcuts.
+        BetterShortcuts.onKeyDown(for: .hideAllWindows) {
+            MainActor.assumeIsolated {
+                Activator.hideAllApps()
+            }
+        }
+        BetterShortcuts.onKeyDown(for: .showAllWindows) {
+            MainActor.assumeIsolated {
+                Activator.showAllApps()
+            }
+        }
     }
 
     /// Map each window-management shortcut name to the arrangement it performs.

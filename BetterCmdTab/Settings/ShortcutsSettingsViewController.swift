@@ -120,6 +120,18 @@ final class ShortcutsSettingsViewController: SettingsTabViewController {
         for (name, title) in BetterShortcuts.Name.windowMgmt {
             addRow(to: windowMgmt, title: title, accessory: BetterShortcuts.RecorderCocoa(for: name))
         }
+        addRow(
+            to: windowMgmt,
+            title: String(localized: "Hide all windows"),
+            subtitle: String(localized: "Hide every app to reveal the desktop. Works system-wide."),
+            accessory: BetterShortcuts.RecorderCocoa(for: .hideAllWindows)
+        )
+        addRow(
+            to: windowMgmt,
+            title: String(localized: "Show all windows"),
+            subtitle: String(localized: "Bring every hidden app back."),
+            accessory: BetterShortcuts.RecorderCocoa(for: .showAllWindows)
+        )
         cycleWidthsSwitch.controlSize = .small
         cycleWidthsSwitch.target = self
         cycleWidthsSwitch.action = #selector(toggleCycleWidths(_:))

@@ -97,12 +97,14 @@ struct BetterShortcutsIntegrationTests {
     func allCases() {
         let names = BetterShortcuts.Name.allCases
         // 2 switcher triggers + direct-activation slots + scoped slots +
-        // in-panel action keys + window-management actions.
+        // in-panel action keys + window-management actions + global
+        // window-visibility actions (hide-all / show-all).
         let expected = 2
             + BetterShortcuts.Name.directActivateSlotCount
             + BetterShortcuts.Name.scopedSwitchSlotCount
             + BetterShortcuts.Name.panelActionKeys.count
             + BetterShortcuts.Name.windowMgmt.count
+            + BetterShortcuts.Name.globalWindowActions.count
         #expect(names.count == expected)
         #expect(names.contains(.switchApps))
         #expect(names.contains(.switchWindows))
@@ -110,5 +112,7 @@ struct BetterShortcutsIntegrationTests {
         #expect(names.contains(.scopedSwitch.first!))
         #expect(names.contains(.panelClose))
         #expect(names.contains(.windowTileLeft))
+        #expect(names.contains(.hideAllWindows))
+        #expect(names.contains(.showAllWindows))
     }
 }

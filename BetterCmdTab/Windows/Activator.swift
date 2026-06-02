@@ -554,6 +554,31 @@ enum Activator {
         }
     }
 
+    /// Hide every regular (Dock-presence) app at once, clearing the screen to the
+    /// desktop. Like pressing ⌘H in each app, but global. Skips ourselves
+    /// (accessory, no windows — `.hide()` would be a no-op) and apps already
+    /// hidden. Cheap: one `.hide()` per visible app, no AX or per-window walk.
+    static func hideAllApps() {
+        let selfPid = getpid()
+        for app in NSWorkspace.shared.runningApplications
+        where app.activationPolicy == .regular
+            && app.processIdentifier != selfPid
+            && !app.isHidden {
+            app.hide()
+        }
+    }
+
+    /// Unhide every regular app currently hidden (by `hideAllApps()` or a manual
+    /// ⌘H). Deliberately does NOT activate them — unhiding many apps and
+    /// activating each would thrash focus; the frontmost app stays put and the
+    /// rest simply reappear. Stateless, so it pairs with any hide source.
+    static func showAllApps() {
+        for app in NSWorkspace.shared.runningApplications
+        where app.activationPolicy == .regular && app.isHidden {
+            app.unhide()
+        }
+    }
+
     static func quitApp(_ row: SwitcherRow) {
         guard let app = row.app else { return }
         if app.bundleIdentifier == finderBundleID {

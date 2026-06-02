@@ -83,6 +83,24 @@ extension BetterShortcuts.Name {
     /// full-screen before the arrange. Default ⌃⌘⌫.
     static let windowRestorePrevious = Self("windowRestorePrevious", default: .init(.delete, modifiers: [.control, .command]))
 
+    // MARK: Global window-visibility hotkeys
+
+    /// Hide every app at once (clear to the desktop) / bring them all back. Live
+    /// global Carbon hotkeys fired by `BetterShortcuts.onKeyDown` handlers in
+    /// `WindowManagement`. No defaults — like `directActivate`, these act
+    /// system-wide, so the user assigns the combo rather than us claiming one
+    /// unasked (and risking a clash with a system or app shortcut). Not part of
+    /// `windowMgmt`, so the CGEvent tap's chord map ignores them — they're plain
+    /// global hotkeys, not in-switcher chords.
+    static let hideAllWindows = Self("hideAllWindows")
+    static let showAllWindows = Self("showAllWindows")
+
+    /// The global window-visibility names, paired with a stable label.
+    static let globalWindowActions: [(name: Self, title: String)] = [
+        (.hideAllWindows, "Hide all windows"),
+        (.showAllWindows, "Show all windows"),
+    ]
+
     /// All window-management names, paired with a stable label.
     static let windowMgmt: [(name: Self, title: String)] = [
         (.windowTileLeft, "Tile left half"),
@@ -104,6 +122,7 @@ extension BetterShortcuts.Name: @retroactive CaseIterable {
             + scopedSwitch
             + panelActionKeys.map(\.name)
             + windowMgmt.map(\.name)
+            + globalWindowActions.map(\.name)
     }
 
     /// Human-readable label used by the recorder's conflict alert.
@@ -125,6 +144,9 @@ extension BetterShortcuts.Name: @retroactive CaseIterable {
             }
             if let wm = Self.windowMgmt.first(where: { $0.name == self }) {
                 return wm.title
+            }
+            if let gw = Self.globalWindowActions.first(where: { $0.name == self }) {
+                return gw.title
             }
             return rawValue
         }
