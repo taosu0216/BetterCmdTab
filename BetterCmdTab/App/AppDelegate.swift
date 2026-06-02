@@ -12,6 +12,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var axWaiter: AccessibilityWaiter?
     private var cancellables = Set<AnyCancellable>()
 
+    /// Process-lifetime App Nap opt-out. A `.accessory` app is always fully
+    /// occluded, so macOS App-Naps it after a quiet spell — throttling the main
+    /// run loop and coalescing the reveal `Timer`, which is exactly why the first
+    /// ⌘Tab after idle appears slower than one during active use. The switcher is
+    /// fully event-driven when idle (catalog updates ride AX observers, title
+    /// callbacks are gated on panel visibility, no polling), so holding this
+    /// assertion adds ~no idle CPU/RAM — it only removes the throttle, keeping
+    /// reveal latency constant. `…AllowingIdleSystemSleep` still lets the Mac
+    /// idle-sleep and never disables display sleep: we opt out of App Nap only.
+    private var antiNapActivity: NSObjectProtocol?
+
     static func main() {
         let app = NSApplication.shared
         let delegate = AppDelegate()
@@ -100,6 +111,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let c = SwitcherController()
         c.start()
         controller = c
+        // Hold the App Nap opt-out only once the switcher is live (held for the
+        // remaining process lifetime — never ended). Booting untrusted leaves
+        // the switcher inert, where napping is harmless anyway.
+        if antiNapActivity == nil {
+            antiNapActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Keep ⌘Tab reveal latency constant (opt out of App Nap)"
+            )
+        }
     }
 
     /// Whether the "Accessibility was revoked" alert is currently being shown,
