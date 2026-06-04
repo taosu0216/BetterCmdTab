@@ -161,6 +161,14 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
     /// change — accents change rarely (a settings tweak), letters render constantly.
     private var accentKey: String = NSColor.controlAccentColor.description
 
+    func prepareForIdle() {
+        // Drop only the app icon — the heavy per-app retain held off IconCache and
+        // re-set by `configure`. The status indicators are shared SF Symbols set
+        // once at init (not in `configure`), so clearing them would leave a reused
+        // row blank; leave them be.
+        imageView.image = nil
+    }
+
     func configure(with row: SwitcherRow, label: String, prefixLength: Int, selected: Bool, metrics: SwitcherMetrics, accent: NSColor) {
         if metrics != self.metrics {
             applyMetrics(metrics)

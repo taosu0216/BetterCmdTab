@@ -13,6 +13,12 @@ protocol SwitcherItemViewProtocol: NSView {
     /// Highlight the button under `point` (window coords); nil clears it.
     func setHotDot(atWindowPoint point: NSPoint?)
     func configure(with row: SwitcherRow, label: String, prefixLength: Int, selected: Bool, metrics: SwitcherMetrics, accent: NSColor)
+    /// Drop per-tile image retains (app icon, window thumbnail) so the shared
+    /// `IconCache` / `WindowThumbnailCache` can evict them, without discarding the
+    /// view itself. Called when the panel dismisses so the pooled view stays
+    /// allocated for the next reveal (no from-scratch rebuild on the hot path) yet
+    /// holds no images while idle. `configure` repopulates them on reuse.
+    func prepareForIdle()
 }
 
 @MainActor
@@ -177,6 +183,10 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
 
     private var currentLabel: String = ""
     private var currentPrefixLength: Int = 0
+
+    func prepareForIdle() {
+        imageView.image = nil
+    }
 
     func configure(with row: SwitcherRow, label: String, prefixLength: Int, selected: Bool, metrics: SwitcherMetrics, accent: NSColor) {
         if metrics != self.metrics {

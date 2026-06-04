@@ -169,6 +169,17 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
     private var currentLabel: String = ""
     private var currentPrefixLength: Int = 0
 
+    func prepareForIdle() {
+        // Release the thumbnail and app-icon retains so WindowThumbnailCache /
+        // IconCache can evict them; all are re-set by `configure` on reuse.
+        // Reset windowID to 0 so a late `setThumbnail` callback can't paint this
+        // pooled tile after it's been parked.
+        imageView.image = nil
+        iconView.image = nil
+        placeholderIcon = nil
+        windowID = 0
+    }
+
     func configure(with row: SwitcherRow, label: String, prefixLength: Int, selected: Bool, metrics: SwitcherMetrics, accent: NSColor) {
         if metrics != self.metrics {
             applyMetrics(metrics)

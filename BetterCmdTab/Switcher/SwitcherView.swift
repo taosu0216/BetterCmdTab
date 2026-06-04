@@ -203,16 +203,24 @@ final class SwitcherView: NSView, TabStripDelegate {
         tabStrip.setSelectedIndex(index)
     }
 
-    /// Release the item view pool, cached row references, and any per-tile
-    /// `NSImage` retains so the `IconCache` (and `WindowThumbnailCache`) can
-    /// evict images that would otherwise stay live for the lifetime of the
-    /// process. Called by `SwitcherController` after `panel.dismiss()` —
-    /// next reveal rebuilds the pool from scratch (~10ms on first paint).
+    /// Release per-tile `NSImage` retains (app icons, window thumbnails) so the
+    /// `IconCache` / `WindowThumbnailCache` can evict images that would otherwise
+    /// stay live for the process lifetime — but KEEP the item views pooled
+    /// (hidden). Called by `SwitcherController` after `panel.dismiss()`.
+    ///
+    /// Previously this tore the whole pool down and the next reveal rebuilt it
+    /// from scratch (`makeItemView` + `addSubview` per row, then a full autolayout
+    /// pass), a cost that scales with the live app/window count and showed up as
+    /// intermittent reveal-latency spikes (worst in grid layout). Keeping the
+    /// views means the next `configure()` reuses them — only the row-count delta
+    /// is ever allocated — while the heavy image retains are still dropped here.
+    /// A layout-mode change between opens still rebuilds the pool with the right
+    /// view class (handled in `configure`).
     func releaseIdleResources() {
         for v in itemViews {
-            v.removeFromSuperview()
+            v.prepareForIdle()
+            v.isHidden = true
         }
-        itemViews.removeAll(keepingCapacity: false)
         rows = []
         labels = []
         cachedLayout = nil
