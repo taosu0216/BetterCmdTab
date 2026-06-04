@@ -1751,7 +1751,7 @@ final class SwitcherController: SwitcherViewDelegate {
         let targetPid = snapshotApps.indices.contains(targetIdx)
             ? snapshotApps[targetIdx].processIdentifier : nil
 
-        let cachedRows = cache.rows(orderedBy: mru.order)
+        let cachedRows = Log.reveal.withIntervalSignpost("catalog.rows") { cache.rows(orderedBy: mru.order) }
         let hadCachedRows = !cachedRows.isEmpty
         if hadCachedRows {
             baseRows = cachedRows

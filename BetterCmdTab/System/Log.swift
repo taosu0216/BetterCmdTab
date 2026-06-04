@@ -12,4 +12,11 @@ enum Log {
     static let activator = Logger(subsystem: subsystem, category: "activator")
     static let priv = Logger(subsystem: subsystem, category: "private-api")
     static let launch = Logger(subsystem: subsystem, category: "launch-at-login")
+
+    /// Points-of-Interest signposter for the ⌘Tab reveal hot path. Use to capture
+    /// where the panel-appearance latency goes in Instruments (Points of Interest
+    /// instrument, subsystem above): timer-fire→visible, the catalog/configure
+    /// work, and `panel.present()` split into its autolayout pass vs the
+    /// WindowServer order-front. Near-zero cost when nothing is recording.
+    static let reveal = OSSignposter(subsystem: subsystem, category: "reveal")
 }

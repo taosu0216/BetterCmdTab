@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import ObjectiveC
+import os
 
 @MainActor
 final class SwitcherPanel: NSPanel {
@@ -127,8 +128,10 @@ final class SwitcherPanel: NSPanel {
         guard let content = contentView else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        content.layoutSubtreeIfNeeded()
-        let fitting = content.fittingSize
+        let fitting = Log.reveal.withIntervalSignpost("present.layout") { () -> NSSize in
+            content.layoutSubtreeIfNeeded()
+            return content.fittingSize
+        }
         let screen = activeScreen()
         let visible = screen.visibleFrame
         // Hard safety: never let the panel extend past the visible frame, even if
@@ -155,17 +158,21 @@ final class SwitcherPanel: NSPanel {
         // `.none`).
         content.isHidden = false
         alphaValue = CGFloat(Preferences.shared.panelOpacity) / 100
-        makeKeyAndOrderFront(nil)
-        // Activate the app while the switcher is shown. `NSGlassEffectView`'s
-        // active/inactive look is decided window-server-side from the owning app's
-        // real activation state — the in-process `appearsActive` override can't
-        // reach it — so a non-activating accessory app's glass renders dimmed
-        // unless we actually become active. The controller captured the previously
-        // frontmost app first and restores it on cancel.
-        if #available(macOS 14.0, *) {
-            NSApp.activate()
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
+        // The WindowServer order-front + app activation; split out so Instruments
+        // shows it apart from the autolayout pass above when chasing reveal spikes.
+        Log.reveal.withIntervalSignpost("present.orderFront") {
+            makeKeyAndOrderFront(nil)
+            // Activate the app while the switcher is shown. `NSGlassEffectView`'s
+            // active/inactive look is decided window-server-side from the owning
+            // app's real activation state — the in-process `appearsActive` override
+            // can't reach it — so a non-activating accessory app's glass renders
+            // dimmed unless we actually become active. The controller captured the
+            // previously frontmost app first and restores it on cancel.
+            if #available(macOS 14.0, *) {
+                NSApp.activate()
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
         CATransaction.commit()
         onFrameDidChange?(Self.cgGlobalFrame(from: frame))
