@@ -28,11 +28,6 @@ because it feels faster).
    cross-file (3+) refactor that `cavecrew-builder` refuses, a new feature spanning many
    files, or multi-step research no single cavecrew role handles.
 
-**rtk** (Rust Token Killer) is separate from the caveman tiers: use it only on **large
-tasks** where a command's output is big enough that token compression pays off (big logs,
-wide `git`/build output, full-tree listings). Run ordinary small commands directly. Meta
-commands (`rtk gain`, `rtk discover`) stay as-is.
-
 Caveman *response mode* is active this session (terse output). Keep code, commits, PRs,
 and security/irreversible-action notes in normal prose.
 
