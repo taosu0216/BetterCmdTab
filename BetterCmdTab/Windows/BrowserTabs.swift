@@ -498,8 +498,17 @@ enum BrowserTabs {
                 end timeout
             end tell
             """
-            if let raw = runScript(matchSource), raw != "FALLBACK" {
-                return raw == "true"
+            if let raw = runScript(matchSource) {
+                if raw != "FALLBACK" { return raw == "true" }
+                // "FALLBACK" → title didn't uniquely match; use the raise path.
+            } else {
+                // Script errored (permission denied / timeout). Still raise the
+                // row's window via AX — it works without Automation and costs no
+                // spawn, so the right browser window at least comes forward — but
+                // skip the second osascript: re-spawning against a denied/wedged
+                // browser only doubles the give-up latency for no gain.
+                raiseInBrowser(window, pid: app.processIdentifier)
+                return false
             }
         }
 
@@ -566,8 +575,13 @@ enum BrowserTabs {
                 end timeout
             end tell
             """
-            if let raw = runScript(matchSource), raw != "FALLBACK" {
-                return raw == "true"
+            if let raw = runScript(matchSource) {
+                if raw != "FALLBACK" { return raw == "true" }
+                // "FALLBACK" → title didn't uniquely match; use the raise path.
+            } else {
+                // Script errored (permission/timeout) — don't double-spawn the
+                // raise path, just report the failure.
+                return false
             }
         }
 

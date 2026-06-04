@@ -260,8 +260,11 @@ final class AppCatalogCache {
         let launchObs = nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid = app.processIdentifier
+            let canHaveWindows = app.activationPolicy == .regular || app.activationPolicy == .accessory
             Task { @MainActor [weak self] in
-                self?.installAXObserver(forPid: pid)
+                if canHaveWindows {
+                    self?.installAXObserver(forPid: pid)
+                }
                 self?.scheduleBumpApp(pid: pid)
             }
         }
@@ -276,7 +279,9 @@ final class AppCatalogCache {
     /// pending install backlog — turning the very first Cmd+Tab after launch
     /// into a 3–4s lag spike.
     private func installAXObserversForAllApps() {
-        let pids = NSWorkspace.shared.runningApplications.map(\.processIdentifier)
+        let pids = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular || $0.activationPolicy == .accessory }
+            .map(\.processIdentifier)
         for pid in pids {
             installAXObserver(forPid: pid)
         }

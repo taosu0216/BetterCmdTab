@@ -478,8 +478,7 @@ enum Activator {
         guard err == .success, CFGetTypeID(buttonValue as CFTypeRef) == AXUIElementGetTypeID() else {
             return false
         }
-        AXUIElementPerformAction(buttonValue as! AXUIElement, kAXPressAction as CFString)
-        return true
+        return AXUIElementPerformAction(buttonValue as! AXUIElement, kAXPressAction as CFString) == .success
     }
 
     static func minimizeWindow(_ row: SwitcherRow) {
