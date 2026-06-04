@@ -60,6 +60,9 @@ final class SwitcherController: SwitcherViewDelegate {
     private let mru = MRUTracker()
     private let windowMRU = WindowMRUTracker()
     private let cache = AppCatalogCache()
+    /// Live-refreshes Dock badges (unread counts) while the panel is open. Armed
+    /// only between reveal and close, so it costs nothing when the switcher is shut.
+    private let dockBadgeObserver = DockBadgeObserver()
     private let panel = SwitcherPanel()
     private let view: SwitcherView
 
@@ -420,13 +423,10 @@ final class SwitcherController: SwitcherViewDelegate {
     private static let maxHotkeyTapRetries = 5
 
     func start() {
-        // Crash-safety for the WindowServer symbolic-hotkey disable (which
-        // outlives the process): install signal/atexit restoration, then
-        // self-heal any disable a previous run left behind before we re-derive
-        // and re-apply the current config. Covers the uncatchable SIGKILL case.
-        SymbolicHotkeyGuard.install()
-        healStaleSymbolicHotkeyDisable()
-
+        // The crash-safety guard install + stale symbolic-hotkey heal moved to
+        // `AppDelegate.applicationDidFinishLaunching`: they must run before the
+        // Accessibility-gated boot (their WindowServer IPC needs no AX) so a
+        // crash-then-revoke still restores the user's native ⌘Tab on next launch.
         mru.start()
         windowMRU.start()
         cache.start(mru: mru)
@@ -441,6 +441,11 @@ final class SwitcherController: SwitcherViewDelegate {
         // finishing load while the user scans rows.
         cache.onVisibleTitleChanged = { [weak self] in
             self?.scheduleVisibleTitleRefresh()
+        }
+        // A Dock badge (unread count) changed while the panel is open — re-read
+        // the badges and repaint so counts stay live without reopening.
+        dockBadgeObserver.onBadgesChanged = { [weak self] in
+            self?.scheduleVisibleBadgeRefresh()
         }
         RecentlyClosedStore.shared.start()
         if !hotkey.install() {
@@ -978,6 +983,30 @@ final class SwitcherController: SwitcherViewDelegate {
         }
     }
 
+    /// Accessibility was revoked at runtime (surfaced by `AppDelegate`). The
+    /// CGEvent tap is now dead and every `Activator` AX raise will fail, so the
+    /// switcher can't act — yet the native symbolic ⌘Tab we disabled persists
+    /// independently of AX, which would leave the user with NO working ⌘Tab at
+    /// all. Re-enable it (the WindowServer IPC needs no AX) so macOS's own
+    /// switcher works until trust returns; `reassertNativeOverrideAfterRegrant()`
+    /// re-disables it once AX is back.
+    func handleAccessibilityRevoked() {
+        let toReEnable: [PrivateAPI.SymbolicHotKey] = disabledSymbolicKeys.isEmpty
+            ? [.commandTab, .commandShiftTab, .commandKeyAboveTab]
+            : disabledSymbolicKeys
+        PrivateAPI.setNativeCommandTabEnabled(true, toReEnable)
+        disabledSymbolicKeys = []
+        persistDisabledSymbolicKeys([])
+    }
+
+    /// Accessibility was re-granted at runtime. After `reinstallHotkeyTap()`
+    /// re-arms the tap, re-assert the native-shortcut override dropped on revoke
+    /// so the always-armed symbolic-⌘Tab suppression is restored. Respects an
+    /// active Privacy-pane "Restore" suspension (no-op while suspended).
+    func reassertNativeOverrideAfterRegrant() {
+        syncNativeHotkeyOverride()
+    }
+
     /// Retry a failed `hotkey.install()` on a short backoff. Only reached after an
     /// install that left the tap uncreated, so a plain `install()` (not a
     /// reinstall) is safe — there is no live tap to leak. Gives up after
@@ -1047,17 +1076,21 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     /// Re-enable any symbolic hotkeys a previous run disabled but never restored
-    /// (crash / SIGKILL / power loss). Runs once at startup before the live
-    /// config is applied; the normal `syncNativeHotkeyOverride` then re-disables
-    /// whatever the current trigger actually needs.
-    private func healStaleSymbolicHotkeyDisable() {
+    /// (crash / SIGKILL / power loss). Called from
+    /// `AppDelegate.applicationDidFinishLaunching` — BEFORE the Accessibility-gated
+    /// controller boot — because the WindowServer IPC it uses needs no
+    /// Accessibility: a crash-then-revoke must still restore the user's native
+    /// ⌘Tab on the next launch even while AX is untrusted. The normal
+    /// `syncNativeHotkeyOverride` later re-disables whatever the current trigger
+    /// needs once the controller boots.
+    static func healStaleSymbolicHotkeyDisable() {
         let defaults = UserDefaults.standard
-        guard let raw = defaults.array(forKey: Self.persistedDisabledKey) as? [Int], !raw.isEmpty else { return }
+        guard let raw = defaults.array(forKey: persistedDisabledKey) as? [Int], !raw.isEmpty else { return }
         let keys = raw.compactMap { PrivateAPI.SymbolicHotKey(rawValue: Int32($0)) }
         if !keys.isEmpty {
             PrivateAPI.setNativeCommandTabEnabled(true, keys)
         }
-        defaults.removeObject(forKey: Self.persistedDisabledKey)
+        defaults.removeObject(forKey: persistedDisabledKey)
         SymbolicHotkeyGuard.setDisabled([])
     }
 
@@ -1839,6 +1872,7 @@ final class SwitcherController: SwitcherViewDelegate {
         panel.present()
         phase = .visible
         cache.setPanelVisible(true)
+        dockBadgeObserver.start(enabled: Preferences.shared.showUnreadBadges)
         // Inline browser-tab mode: start scanning the visible browser windows'
         // tabs now so the rows expand as soon as Apple Events answers. Self-
         // guards on the pref; a no-op on the cold (placeholder) branch since
@@ -1931,6 +1965,7 @@ final class SwitcherController: SwitcherViewDelegate {
         panel.present()
         phase = .visible
         cache.setPanelVisible(true)
+        dockBadgeObserver.start(enabled: Preferences.shared.showUnreadBadges)
     }
 
     private func scheduleWindowsOnlyRefresh(pid: pid_t, gen: UInt64) {
@@ -1974,7 +2009,20 @@ final class SwitcherController: SwitcherViewDelegate {
             let l = $0.element.pid ?? 0, r = $1.element.pid ?? 0
             return l != r ? l < r : $0.offset < $1.offset
         }.map(\.element)
-        return CatalogFilter.pinnedToFront(windowMRU.sortRowsGlobally(stable), Preferences.shared.pinnedBundleIDs)
+        // The recency sort interleaves windows of hidden/windowless apps among the
+        // active ones, discarding the status bucketing the default `.mru` sort
+        // applies. Re-apply it as a STABLE sort so hidden/windowless/minimized rows
+        // sink to the end (matching `.mru` and the rest of the app) while recency
+        // order is preserved within each bucket. Then re-pin.
+        let ranked = windowMRU.sortRowsGlobally(stable)
+        let bucketed = ranked.enumerated()
+            .sorted { lhs, rhs in
+                let lp = AppCatalogCache.statusPriority(lhs.element)
+                let rp = AppCatalogCache.statusPriority(rhs.element)
+                return lp != rp ? lp < rp : lhs.offset < rhs.offset
+            }
+            .map(\.element)
+        return CatalogFilter.pinnedToFront(bucketed, Preferences.shared.pinnedBundleIDs)
     }
 
     private func applyFullSnapshot(_ fresh: [SwitcherRow], anchorPid: pid_t?) {
@@ -2081,6 +2129,28 @@ final class SwitcherController: SwitcherViewDelegate {
                     guard changed else { return }
                     self.baseRows = patched
                     self.baseLabels = RowLabels.labels(for: self.baseRows)
+                    self.refreshDisplay()
+                }
+            }
+        }
+    }
+
+    /// A Dock badge changed while the panel is open (signalled by
+    /// `DockBadgeObserver`, already debounced). Re-read the badge map off-main —
+    /// the read AX-scrapes the Dock tree — then repaint: the item views pull the
+    /// fresh count from `DockBadgeReader.shared.badge(forBundleID:)` on each
+    /// `configure`, so no row-model change is needed. Generation- and
+    /// visibility-guarded so a scan landing after the panel closed is dropped.
+    private func scheduleVisibleBadgeRefresh() {
+        guard phase == .visible, Preferences.shared.showUnreadBadges else { return }
+        let gen = revealGeneration
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            let badges = DockBadgeReader.snapshot()
+            DispatchQueue.main.async {
+                guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
+                // Only repaint when a badge actually changed — the live poll calls
+                // this on an interval, so an unchanged scan must not re-render rows.
+                if DockBadgeReader.shared.apply(badges) {
                     self.refreshDisplay()
                 }
             }
@@ -2295,10 +2365,11 @@ final class SwitcherController: SwitcherViewDelegate {
     /// produced: sort the front app's windows by MRU, then pick `delta`
     /// positions away from the current front window with wrap.
     private func pickWindowsOnlyTarget(pid: pid_t, delta: Int) -> SwitcherRow? {
+        // Warm cache ONLY — this runs inside commit() on the main actor, so it
+        // must never trigger a synchronous cross-process AppCatalog.snapshot().
+        // On a cold cache (the brief boot/AX-regrant window) it returns nil and
+        // the caller falls back to a cheap, main-safe app activation.
         var candidates = cache.rows(orderedBy: mru.order).filter { $0.pid == pid && $0.window != nil }
-        if candidates.isEmpty {
-            candidates = AppCatalog.snapshot(orderedBy: mru.order).filter { $0.pid == pid && $0.window != nil }
-        }
         guard !candidates.isEmpty else { return nil }
         candidates = windowMRU.sortRows(candidates, forPid: pid)
         let count = candidates.count
@@ -2310,15 +2381,14 @@ final class SwitcherController: SwitcherViewDelegate {
     /// catalogued window. The catalog gives an app either one windowless row or
     /// one row per window (windowed rows sort first), so the first windowed row
     /// for the pid is the frontmost — matching reveal()'s `firstIndex(by: pid)`
-    /// pick. Reads the warm cache first, then falls back to a fresh AX snapshot
-    /// when cold — the same two-tier lookup as `pickWindowsOnlyTarget`. Returns
-    /// nil for a windowless app so the caller can fall back to `activateApp`.
+    /// pick. Reads the warm cache ONLY: this runs inside commit() on the main
+    /// actor (the hottest path), so it must never trigger a synchronous
+    /// cross-process AppCatalog.snapshot(). nil — a windowless app, or the brief
+    /// cold-cache window at boot/AX-regrant — makes the caller fall back to the
+    /// cheap, main-safe `activateApp`.
     private func primedAppTargetRow(for app: NSRunningApplication) -> SwitcherRow? {
         let pid = app.processIdentifier
-        if let row = cache.rows(orderedBy: mru.order).first(where: { $0.pid == pid && $0.window != nil }) {
-            return row
-        }
-        return AppCatalog.snapshot(orderedBy: mru.order).first(where: { $0.pid == pid && $0.window != nil })
+        return cache.rows(orderedBy: mru.order).first(where: { $0.pid == pid && $0.window != nil })
     }
 
     /// The window row a `.mruWindows` fast tap-release should activate: the
@@ -2381,11 +2451,18 @@ final class SwitcherController: SwitcherViewDelegate {
                 }
             }
         case .primed:
-            if windowsOnlyMode, let pid = windowsOnlyPid,
-               let row = pickWindowsOnlyTarget(pid: pid, delta: windowsOnlyPrimedDelta) {
-                if let p = row.pid { mru.bump(p) }
-                bumpWindowMRUIfPossible(for: row)
-                pendingActivation = { Activator.activate(row, instantSpace: instantSpace) }
+            if windowsOnlyMode, let pid = windowsOnlyPid {
+                if let row = pickWindowsOnlyTarget(pid: pid, delta: windowsOnlyPrimedDelta) {
+                    if let p = row.pid { mru.bump(p) }
+                    bumpWindowMRUIfPossible(for: row)
+                    pendingActivation = { Activator.activate(row, instantSpace: instantSpace) }
+                } else if let app = NSRunningApplication(processIdentifier: pid) {
+                    // Cold cache (brief boot/AX-regrant window): no windowed rows
+                    // cached yet. Activate the app — cheap and main-safe — rather
+                    // than blocking the commit on a synchronous AX scan.
+                    mru.bump(pid)
+                    pendingActivation = { Activator.activateApp(app) }
+                }
             } else if Preferences.shared.sortOrder == .mruWindows,
                       let row = primedWindowMRUTargetRow() {
                 // Window-level fast tap-release: activate the window the visible
@@ -2418,6 +2495,7 @@ final class SwitcherController: SwitcherViewDelegate {
         revealGeneration &+= 1
         phase = .idle
         cache.setPanelVisible(false)
+        dockBadgeObserver.stop()
         // Activate BEFORE dismissing the panel: `panel.dismiss()` calls
         // `orderOut(nil)`, surrendering our window/focus to the WindowServer.
         // If that ran first, the synchronous AX focus writes inside the
@@ -2454,6 +2532,7 @@ final class SwitcherController: SwitcherViewDelegate {
         revealGeneration &+= 1
         phase = .idle
         cache.setPanelVisible(false)
+        dockBadgeObserver.stop()
         panel.dismiss()
         primedApps = []
         rows = []
@@ -2874,6 +2953,7 @@ final class SwitcherController: SwitcherViewDelegate {
         revealGeneration &+= 1
         phase = .idle
         cache.setPanelVisible(false)
+        dockBadgeObserver.stop()
         CommitFeedback.play()
         // Activate BEFORE dismissing the panel (same reason as commit()):
         // panel.dismiss() surrenders our key window, so a synchronous activate
