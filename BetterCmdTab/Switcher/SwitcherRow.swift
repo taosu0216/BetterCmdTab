@@ -274,6 +274,17 @@ struct SwitcherRow {
         if window == nil { return appName }
         return windowTitle.isEmpty ? appName : windowTitle
     }
+
+    /// The window-title portion only — empty when the row would otherwise fall back
+    /// to the app name (windowless apps, placeholders, untitled windows). Used by the
+    /// "Show application names" = off path so hiding names never re-surfaces the app
+    /// name as a title. Mirrors `displayTitle`'s branches but never returns `appName`.
+    var windowTitleText: String {
+        if isPlaceholder { return "" }
+        if case .recentlyClosed(let entry) = subject { return entry.title }
+        if window == nil { return "" }
+        return windowTitle
+    }
 }
 
 /// Cached System Settings app icon, used for system permission/dialog rows.

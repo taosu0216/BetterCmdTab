@@ -200,7 +200,12 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         // drop the title text so the tile is just the thumbnail + icon. Browser
         // tabs always show their title — it's the only thing distinguishing one
         // tab tile from another (they share the parent window).
-        nameLabel.stringValue = (Preferences.shared.showWindowTitleLabel || row.browserTab != nil) ? row.displayTitle : ""
+        // Browser tabs always show their tab title (the only thing distinguishing
+        // sibling tabs). Otherwise the title is gated by "Show window title". When
+        // app names are hidden, use windowTitleText so a windowless/launch row
+        // never re-surfaces the app name as its title.
+        let previewTitle = Preferences.shared.showApplicationNames ? row.displayTitle : row.windowTitleText
+        nameLabel.stringValue = (Preferences.shared.showWindowTitleLabel || row.browserTab != nil) ? previewTitle : ""
 
         // Dock/notification count badge — shown beside the title, never over the
         // thumbnail. Suppressed for placeholder/dialog rows and for browser-tab
@@ -329,8 +334,14 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         }
 
         // Label row: small app icon + window title (+ optional count badge),
-        // centered as a group.
+        // centered as a group. When both "show app names" and "show window title"
+        // are off, previewLabelArea is 0 and the band is omitted entirely.
         let labelAreaH = m.previewLabelArea
+        if labelAreaH == 0 {
+            iconView.frame = .zero
+            nameLabel.frame = .zero
+            badgePill.frame = .zero
+        } else {
         let iconSize = min(m.previewIconSize, labelAreaH)
 
         // Count badge sits to the right of the title — a small circle, noticeably
@@ -385,6 +396,7 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
             let lineH = ceil(badgeFont.ascender - badgeFont.descender)
             badgeLabel.frame = NSRect(x: 0, y: round((badgeSize - lineH) / 2), width: badgeSize, height: lineH)
         }
+        } // end labelAreaH > 0
 
         if !actionBar.isHidden {
             // Top-left corner of the thumbnail, inset slightly. Matches the

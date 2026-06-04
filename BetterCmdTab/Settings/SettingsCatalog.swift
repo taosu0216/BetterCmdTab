@@ -88,6 +88,7 @@ enum SearchID {
     static let expandBrowserTabs = "switcher.expandBrowserTabs"
     static let tabPermissions = "switcher.tabPermissions"
     static let letterHints = "switcher.letterHints"
+    static let applicationNames = "switcher.applicationNames"
     static let fuzzy = "switcher.fuzzy"
     static let launcher = "switcher.launcher"
     static let searchMode = "switcher.searchMode"

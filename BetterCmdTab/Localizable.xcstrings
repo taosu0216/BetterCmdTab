@@ -7941,6 +7941,62 @@
           }
         }
       }
+    },
+    "Show application names" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Namen anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar nombres de aplicaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les noms des applications"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj nazwy aplikacji"
+          }
+        }
+      }
+    },
+    "Hide the app name in every layout; identify apps by their icon." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blendet den App-Namen in allen Layouts aus; Apps werden am Symbol erkannt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oculta el nombre de la aplicación en todas las disposiciones; identifica las apps por su icono."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masque le nom de l’application dans toutes les dispositions ; identifiez les apps par leur icône."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukrywa nazwę aplikacji we wszystkich układach; rozpoznawaj aplikacje po ikonie."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

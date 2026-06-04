@@ -12,6 +12,7 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
     private let delaySlider = NSSlider()
     private let delayValueLabel = NSTextField(labelWithString: "")
     private let windowTitleSwitch = NSSwitch()
+    private let appNamesSwitch = NSSwitch()
     private let opacitySlider = NSSlider()
     private let opacityValueLabel = NSTextField(labelWithString: "")
     private let radiusSlider = NSSlider()
@@ -76,6 +77,11 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
         addRow(to: section, title: String(localized: "Show window title"),
                subtitle: String(localized: "Show each window's title under the icon in the Grid and Previews layouts."),
                accessory: windowTitleSwitch, searchItemID: SearchID.windowTitle)
+
+        configureSwitch(appNamesSwitch, action: #selector(toggleApplicationNames(_:)))
+        addRow(to: section, title: String(localized: "Show application names"),
+               subtitle: String(localized: "Hide the app name in every layout; identify apps by their icon."),
+               accessory: appNamesSwitch, searchItemID: SearchID.applicationNames)
 
         let opacityStack = makeSliderControl(
             opacitySlider, valueLabel: opacityValueLabel,
@@ -222,6 +228,10 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.windowTitleSwitch.state = $0 ? .on : .off }
             .store(in: &cancellables)
+        prefs.$showApplicationNames
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.appNamesSwitch.state = $0 ? .on : .off }
+            .store(in: &cancellables)
         prefs.$panelOpacity
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.applyOpacity($0) }
@@ -255,6 +265,7 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
         applyDelay(prefs.revealDelayMs)
         selectAccent(prefs.accentChoice)
         windowTitleSwitch.state = prefs.showWindowTitleLabel ? .on : .off
+        appNamesSwitch.state = prefs.showApplicationNames ? .on : .off
         applyOpacity(prefs.panelOpacity)
         applyRadius(prefs.panelCornerRadius)
         refreshCustomSwatch()
@@ -301,6 +312,10 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
 
     @objc private func toggleWindowTitle(_ sender: NSSwitch) {
         Preferences.shared.showWindowTitleLabel = (sender.state == .on)
+    }
+
+    @objc private func toggleApplicationNames(_ sender: NSSwitch) {
+        Preferences.shared.showApplicationNames = (sender.state == .on)
     }
 
     @objc private func opacityChanged(_ sender: NSSlider) {

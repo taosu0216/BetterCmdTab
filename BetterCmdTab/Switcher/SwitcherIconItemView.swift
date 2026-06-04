@@ -205,9 +205,14 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         // glyphs — since their host process name/icon are meaningless.
         let isDialog = row.isSystemDialog
 
-        nameLabel.stringValue = isDialog
+        let nameText = isDialog
             ? (row.windowTitle.isEmpty ? row.appName : row.windowTitle)
-            : row.appName
+            : (Preferences.shared.showApplicationNames ? row.appName : "")
+        nameLabel.stringValue = nameText
+        // Drop the name label out of the layout entirely when there's nothing to
+        // show (app names hidden) so the tile doesn't reserve an empty top row —
+        // the secondary line slides up into its slot in `layout()`.
+        nameLabel.isHidden = nameText.isEmpty
 
         // Status glyphs ride with the secondary text instead of crowding the
         // icon. Audio is orthogonal, so it shows alongside the window-state
@@ -477,8 +482,14 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         let labelAreaH = m.tileLabelArea
         let nameH = ceil(nameLabel.font?.pointSize ?? m.tileNameFontSize) + 4
         let titleH = ceil(titleLabel.font?.pointSize ?? m.tileTitleFontSize) + 2
-        nameLabel.frame = NSRect(x: 0, y: labelAreaH - nameH, width: w, height: nameH)
-        titleLabel.frame = NSRect(x: 0, y: labelAreaH - nameH - titleH, width: w, height: titleH)
+        if nameLabel.isHidden {
+            // No app name (names hidden): the secondary line takes the top slot
+            // so there's no empty gap between the icon and the text.
+            titleLabel.frame = NSRect(x: 0, y: labelAreaH - titleH, width: w, height: titleH)
+        } else {
+            nameLabel.frame = NSRect(x: 0, y: labelAreaH - nameH, width: w, height: nameH)
+            titleLabel.frame = NSRect(x: 0, y: labelAreaH - nameH - titleH, width: w, height: titleH)
+        }
 
         if !actionBar.isHidden {
             // Constrain the bar to the tile width minus a small inset before

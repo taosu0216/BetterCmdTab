@@ -50,6 +50,31 @@ struct SwitcherRowTests {
         #expect(row.displayTitle == row.appName)
     }
 
+    @Test("windowTitleText is empty when the row would fall back to the app name")
+    func windowTitleTextHidesAppNameFallback() {
+        // window == nil → displayTitle returns appName, windowTitleText returns "".
+        let nilWin = SwitcherRow(app: hostApp, window: nil, windowTitle: "stale title", isMinimized: false)
+        #expect(nilWin.windowTitleText == "")
+
+        // placeholder → "".
+        let placeholder = SwitcherRow(app: hostApp, window: nil, windowTitle: "ignored",
+                                      isMinimized: false, isPlaceholder: true)
+        #expect(placeholder.windowTitleText == "")
+
+        // launchable → window is nil → "".
+        let installed = InstalledApp(name: "Widget Studio", bundleID: "com.example.widgetstudio",
+                                     url: URL(fileURLWithPath: "/Applications/Widget Studio.app"))
+        #expect(SwitcherRow(launchable: installed).windowTitleText == "")
+    }
+
+    @Test("windowTitleText returns the real window title when one exists")
+    func windowTitleTextKeepsRealTitle() {
+        // Non-nil window with a title → windowTitleText == that title (not the app name).
+        let row = SwitcherRow(app: hostApp, window: axElement(), windowTitle: "Inbox — Mail",
+                              isMinimized: false, cgWindowID: 99)
+        #expect(row.windowTitleText == "Inbox — Mail")
+    }
+
     @Test("empty window title falls back to app name")
     func emptyTitleFallback() {
         // window must be non-nil to enter the title branch — but we can't
