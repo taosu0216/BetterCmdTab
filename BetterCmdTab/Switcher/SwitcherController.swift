@@ -415,10 +415,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // `baseRows`, not `rows`: in fuzzy-search mode an empty filtered result
         // is still a visible panel that must track screen changes.
         guard phase == .visible, !baseRows.isEmpty else { return }
-        let sessionScreen = resolveSessionScreen()
-        panel.targetScreen = sessionScreen
-        currentMetrics = SwitcherMetrics.forScreen(sessionScreen, layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
-        refreshDisplay()
+        applySessionScreen(resolveSessionScreen())
     }
 
     /// UserDefaults key recording which symbolic-hotkey ids we left disabled, so
@@ -1764,10 +1761,34 @@ final class SwitcherController: SwitcherViewDelegate {
     /// two never disagree. Mouse/main resolve live; active-window uses the
     /// off-main capture (`openTargetScreen`) with the panel's fallback chain.
     private func resolveSessionScreen() -> NSScreen {
-        SwitcherPanel.preferredScreen(
+        // Map the captured active-window screen to a still-connected screen by
+        // frame (NSScreen instances are recreated on reconfig; a disconnected
+        // display has no frame match → nil → graceful cursor/main fallback).
+        let active = openTargetScreen.flatMap { captured in
+            NSScreen.screens.first { $0.frame == captured.frame }
+        }
+        return SwitcherPanel.preferredScreen(
             mode: Preferences.shared.switcherDisplayMode,
-            activeWindowScreen: openTargetScreen
+            activeWindowScreen: active
         )
+    }
+
+    /// Re-position/re-size the visible panel for `screen`. Mirrors the recompute
+    /// in `handleScreenParametersChange()`; `refreshDisplay()` re-presents.
+    private func applySessionScreen(_ screen: NSScreen) {
+        panel.targetScreen = screen
+        currentMetrics = SwitcherMetrics.forScreen(screen, layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
+        refreshDisplay()
+    }
+
+    /// After a late `.activeWindow` screen capture lands, move the already-shown
+    /// panel to it — but only if the screen actually changed, to avoid needless
+    /// relayout/flicker when the fallback already matched the active window.
+    private func reapplySessionScreenIfChanged() {
+        guard phase == .visible else { return }
+        let resolved = resolveSessionScreen()
+        guard resolved.frame != panel.targetScreen?.frame else { return }
+        applySessionScreen(resolved)
     }
 
     /// Convert AX (top-left) window bounds to Cocoa and pick the max-overlap
@@ -1853,6 +1874,24 @@ final class SwitcherController: SwitcherViewDelegate {
         prefetchedFocusedWindow = nil
         openTargetScreen = prefetchedTargetScreen
         prefetchedTargetScreen = nil
+        // Mode may have flipped to .activeWindow after the primed prefetch (which
+        // then captured the window but not the screen). Resolve the screen now
+        // from the already-captured window so active-window mode still applies.
+        if Preferences.shared.switcherDisplayMode == .activeWindow,
+           openTargetScreen == nil, let capturedWindow = openFocusedWindow {
+            focusedWindowCaptureGen &+= 1
+            let gen = focusedWindowCaptureGen
+            DispatchQueue.global(qos: .userInteractive).async {
+                let axBounds = Activator.axBounds(of: capturedWindow)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, gen == self.focusedWindowCaptureGen, self.phase == .visible else { return }
+                    if let axBounds, let resolved = self.screen(forAXBounds: axBounds) {
+                        self.openTargetScreen = resolved
+                        self.reapplySessionScreenIfChanged()
+                    }
+                }
+            }
+        }
         if openFocusedWindow == nil, let pid = front?.processIdentifier, pid != getpid() {
             let wantScreen = Preferences.shared.switcherDisplayMode == .activeWindow
             focusedWindowCaptureGen &+= 1
@@ -1864,7 +1903,10 @@ final class SwitcherController: SwitcherViewDelegate {
                     guard let self, gen == self.focusedWindowCaptureGen,
                           self.phase == .visible, self.openFocusedWindow == nil else { return }
                     self.openFocusedWindow = window
-                    if let axBounds { self.openTargetScreen = self.screen(forAXBounds: axBounds) }
+                    if let axBounds, let resolved = self.screen(forAXBounds: axBounds) {
+                        self.openTargetScreen = resolved
+                        self.reapplySessionScreenIfChanged()
+                    }
                 }
             }
         }
