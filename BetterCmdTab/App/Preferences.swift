@@ -25,6 +25,24 @@ enum SwitcherLayoutMode: String, CaseIterable {
     }
 }
 
+/// Which display the switcher panel opens on (#22).
+enum SwitcherDisplayMode: String, CaseIterable {
+    /// Screen under the mouse pointer. Default — matches pre-#22 behavior.
+    case mouseCursor
+    /// Screen of the window focused when ⌘Tab fired.
+    case activeWindow
+    /// "Main display" from System Settings → Displays (the origin-zero screen).
+    case mainDisplay
+
+    var displayName: String {
+        switch self {
+        case .mouseCursor:  return String(localized: "Monitor with the cursor")
+        case .activeWindow: return String(localized: "Monitor with the active window")
+        case .mainDisplay:  return String(localized: "Main display")
+        }
+    }
+}
+
 /// What keeps the switcher open once fuzzy-search has been activated with `/`.
 enum SearchDismissMode: String, CaseIterable {
     /// Keep holding the switcher modifier (⌘); releasing it commits the
@@ -455,12 +473,22 @@ final class Preferences: ObservableObject {
         static let hoverShowForceQuit = "Switcher.hoverShowForceQuit"
         static let hideFromScreenSharing = "Switcher.hideFromScreenSharing"
         static let vimNavigationEnabled = "Switcher.vimNavigationEnabled"
+        static let switcherDisplayMode = "Switcher.displayMode"
     }
 
     @Published var switcherLayoutMode: SwitcherLayoutMode {
         didSet {
             guard oldValue != switcherLayoutMode else { return }
             UserDefaults.standard.set(switcherLayoutMode.rawValue, forKey: Keys.switcherLayoutMode)
+        }
+    }
+
+    /// Which monitor the switcher panel appears on (#22). Default `.mouseCursor`
+    /// preserves the pre-#22 behavior for existing users.
+    @Published var switcherDisplayMode: SwitcherDisplayMode {
+        didSet {
+            guard oldValue != switcherDisplayMode else { return }
+            UserDefaults.standard.set(switcherDisplayMode.rawValue, forKey: Keys.switcherDisplayMode)
         }
     }
 
@@ -1084,6 +1112,8 @@ final class Preferences: ObservableObject {
 
         let layoutRaw = defaults.string(forKey: Keys.switcherLayoutMode)
         self.switcherLayoutMode = layoutRaw.flatMap(SwitcherLayoutMode.init(rawValue:)) ?? .gridView
+        self.switcherDisplayMode = defaults.string(forKey: Keys.switcherDisplayMode)
+            .flatMap(SwitcherDisplayMode.init(rawValue:)) ?? .mouseCursor
 
         let sortRaw = defaults.string(forKey: Keys.sortOrder)
         self.sortOrder = sortRaw.flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru
@@ -1199,6 +1229,8 @@ final class Preferences: ObservableObject {
         let defaults = UserDefaults.standard
 
         switcherLayoutMode = defaults.string(forKey: Keys.switcherLayoutMode).flatMap(SwitcherLayoutMode.init(rawValue:)) ?? .gridView
+        switcherDisplayMode = defaults.string(forKey: Keys.switcherDisplayMode)
+            .flatMap(SwitcherDisplayMode.init(rawValue:)) ?? .mouseCursor
         sortOrder = defaults.string(forKey: Keys.sortOrder).flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru
         revealDelayMs = Self.clampDelay(defaults.object(forKey: Keys.revealDelayMs) as? Int ?? Self.defaultRevealDelayMs)
         letterChainTimeoutMs = Self.clampLetterChainTimeout(defaults.object(forKey: Keys.letterChainTimeoutMs) as? Int ?? Self.defaultLetterChainTimeoutMs)
