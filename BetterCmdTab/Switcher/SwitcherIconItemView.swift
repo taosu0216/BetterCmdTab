@@ -243,7 +243,14 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
             if isDialog {
                 secondaryLine = row.windowTitle.isEmpty ? row.appName : row.windowTitle
             } else if showTitles {
-                secondaryLine = Self.secondaryText(for: row, showTitle: true)
+                // Names hidden, titles shown: ride the window title on the single
+                // line. Use `windowTitleText` for ordinary windows so a blank AX
+                // title falls back to the app name (matching List/Previews — a
+                // blank-title PWA/Electron tile must not render textless), but keep
+                // the Launch/Reopen cues for those row kinds.
+                secondaryLine = (row.isLaunchable || row.isRecentlyClosed)
+                    ? Self.secondaryText(for: row, showTitle: true)
+                    : row.windowTitleText
             } else {
                 secondaryLine = row.appName
             }

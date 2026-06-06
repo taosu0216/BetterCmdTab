@@ -75,6 +75,17 @@ struct SwitcherRowTests {
         #expect(row.windowTitleText == "Inbox — Mail")
     }
 
+    @Test("windowTitleText falls back to the app name for a blank-titled real window")
+    func windowTitleTextBlankTitleFallsBackToAppName() {
+        // A real window with an empty AX title (PWA / some Electron windows) must
+        // surface the app name, not an empty string — the Grid names-hidden tile
+        // relies on this so it never renders a textless icon.
+        let row = SwitcherRow(app: hostApp, window: axElement(), windowTitle: "",
+                              isMinimized: false, cgWindowID: 7)
+        #expect(row.windowTitleText == row.appName)
+        #expect(!row.windowTitleText.isEmpty)
+    }
+
     @Test("recently-closed rows keep their title, and fall back to app name when blank")
     func recentlyClosedTitleSlots() {
         // Entry with a real title → titleSlot/windowTitleText return it; the app-name

@@ -405,7 +405,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // `baseRows`, not `rows`: in fuzzy-search mode an empty filtered result
         // is still a visible panel that must track screen changes.
         guard phase == .visible, !baseRows.isEmpty else { return }
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
         refreshDisplay()
     }
 
@@ -1850,7 +1850,7 @@ final class SwitcherController: SwitcherViewDelegate {
         }
         guard !rows.isEmpty else { cancel(); return }
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
         view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
@@ -1942,7 +1942,7 @@ final class SwitcherController: SwitcherViewDelegate {
         let delta = windowsOnlyPrimedDelta
         index = count > 0 ? ((delta % count) + count) % count : 0
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
         view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
@@ -2007,7 +2007,6 @@ final class SwitcherController: SwitcherViewDelegate {
             next = scopeFiltered(next, scope: scope)
             if next.isEmpty { return }
         }
-        next = applyApplicationsOnly(next)
 
         // `refreshDisplay` preserves the user's current selection by identity so
         // a Tab press landing between reveal-from-cache and this
@@ -2015,8 +2014,10 @@ final class SwitcherController: SwitcherViewDelegate {
         // app, falling back to `anchorPid` only if the row is gone.
         // Re-expand inline browser-tab rows from the (warm) per-session cache so a
         // background refresh doesn't visibly collapse them back to one row; then
-        // scan any browser window that newly appeared.
-        baseRows = expandBrowserTabs(applyWindowMRUSort(next))
+        // scan any browser window that newly appeared. Collapse to one row per app
+        // AFTER the window-MRU sort — matching `reveal()` — so the representative
+        // window each app keeps is identical across the reveal→refresh transition.
+        baseRows = expandBrowserTabs(applyApplicationsOnly(applyWindowMRUSort(next)))
         baseLabels = RowLabels.labels(for: baseRows)
         refreshDisplay(anchorPid: anchorPid)
         scheduleBrowserTabExpansion()
@@ -2348,10 +2349,11 @@ final class SwitcherController: SwitcherViewDelegate {
     private func primedWindowMRUTargetRow() -> SwitcherRow? {
         // Signposted so the fast tap-release sort cost can be read in Instruments
         // (Points of Interest, category "reveal"); near-zero when not recording.
-        // Reuses `applyWindowMRUSort` deliberately so the row a fast tap activates
-        // is byte-identical to the one a held-open panel would select.
+        // Reuses `applyWindowMRUSort` + `applyApplicationsOnly` deliberately so the
+        // row a fast tap activates is byte-identical to the one a held-open panel
+        // would select (the held panel collapses after the sort — see `reveal()`).
         let sorted = Log.reveal.withIntervalSignpost("primed.windowMRU") {
-            applyWindowMRUSort(cache.rows(orderedBy: mru.order))
+            applyApplicationsOnly(applyWindowMRUSort(cache.rows(orderedBy: mru.order)))
         }
         guard !sorted.isEmpty else { return nil }
         let idx = ((primedStepDelta % sorted.count) + sorted.count) % sorted.count
@@ -3156,7 +3158,10 @@ final class SwitcherController: SwitcherViewDelegate {
                 // browser window's tabs back to one row (e.g. after closing a tab,
                 // the panel would show just the window until the user re-opened).
                 // Then rescan so a tab added/closed since the cache stamp shows.
-                self.baseRows = self.expandBrowserTabs(fresh)
+                // Collapse to one row per app when "Applications only" is on — the
+                // reveal paths do this; without it the first in-panel window action's
+                // refresh would re-expand the panel to one row per window.
+                self.baseRows = self.expandBrowserTabs(self.applyApplicationsOnly(fresh))
                 self.baseLabels = RowLabels.labels(for: self.baseRows)
                 self.refreshDisplay()
                 self.scheduleBrowserTabExpansion()
