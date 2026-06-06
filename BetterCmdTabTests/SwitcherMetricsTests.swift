@@ -74,6 +74,23 @@ struct SwitcherMetricsTests {
         #expect(bothOff.previewLabelArea == 0)
     }
 
+    @Test("preview label band survives both-labels-off when browser tabs are expanded")
+    func previewLabelAreaKeptForBrowserTabs() {
+        // Browser-tab tiles share the parent app icon + thumbnail, so the tab title
+        // is the only distinguisher — the band must stay even with both labels off.
+        let bothOffExpanded = SwitcherMetrics.forScale(
+            1.0, layoutMode: .windowPreview,
+            showAppNames: false, showWindowTitles: false, browserTabsExpanded: true)
+        #expect(bothOffExpanded.previewLabelArea == SwitcherMetrics.basePreviewLabelArea)
+
+        // Expansion only matters for the both-off preview case; it must not change
+        // the collapsed grid label area or the list row width.
+        let grid = SwitcherMetrics.forScale(
+            1.0, layoutMode: .gridView,
+            showAppNames: false, showWindowTitles: false, browserTabsExpanded: true)
+        #expect(grid.tileLabelArea == SwitcherMetrics.baseTileCompactLabelArea)
+    }
+
     @Test("scale clamps high values to 1.8")
     func upperClamp() {
         // forScreen with a 4K screen would normally raise scale beyond 1.8;

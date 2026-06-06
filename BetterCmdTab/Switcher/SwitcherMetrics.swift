@@ -98,20 +98,20 @@ struct SwitcherMetrics: Equatable {
 
     static let baseline = SwitcherMetrics.forScale(1.0, layoutMode: .list)
 
-    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list, userScale: CGFloat = 1.0, letterHints: Bool = true, showAppNames: Bool = true, showWindowTitles: Bool = true, hoverActionCount: Int = 0) -> SwitcherMetrics {
+    static func forScreen(_ screen: NSScreen?, layoutMode: SwitcherLayoutMode = .list, userScale: CGFloat = 1.0, letterHints: Bool = true, showAppNames: Bool = true, showWindowTitles: Bool = true, hoverActionCount: Int = 0, browserTabsExpanded: Bool = false) -> SwitcherMetrics {
         let width = screen?.frame.width ?? referenceWidth
         let raw = width / referenceWidth
         // Screen-adaptive clamp first (keep base size on small displays, cap on
         // huge ones), then fold in the user's size preference as a free multiplier
         // so "Small" can shrink below the 1.0 floor.
         let clamped = max(1.0, min(1.8, raw)) * userScale
-        return forScale(clamped, layoutMode: layoutMode, letterHints: letterHints, showAppNames: showAppNames, showWindowTitles: showWindowTitles, hoverActionCount: hoverActionCount)
+        return forScale(clamped, layoutMode: layoutMode, letterHints: letterHints, showAppNames: showAppNames, showWindowTitles: showWindowTitles, hoverActionCount: hoverActionCount, browserTabsExpanded: browserTabsExpanded)
     }
 
     /// `letterHints == false` collapses the space the jump-letter occupies — the
     /// top strip on tiles and the left column in the list — so the panel reflows
     /// tighter when the user turned letter hints off.
-    static func forScale(_ scale: CGFloat, layoutMode: SwitcherLayoutMode = .list, letterHints: Bool = true, showAppNames: Bool = true, showWindowTitles: Bool = true, hoverActionCount: Int = 0) -> SwitcherMetrics {
+    static func forScale(_ scale: CGFloat, layoutMode: SwitcherLayoutMode = .list, letterHints: Bool = true, showAppNames: Bool = true, showWindowTitles: Bool = true, hoverActionCount: Int = 0, browserTabsExpanded: Bool = false) -> SwitcherMetrics {
         let outerPadding: CGFloat
         let cornerRadius: CGFloat
         switch layoutMode {
@@ -157,8 +157,12 @@ struct SwitcherMetrics: Equatable {
 
         // Preview tiles have a single label row (small app icon + window title).
         // With both hidden there's nothing textual left, so drop the row entirely
-        // and let the tile be thumbnail-only and shorter.
-        let previewLabelAreaH = (layoutMode == .windowPreview && bothLabelsHidden)
+        // and let the tile be thumbnail-only and shorter. Exception: when browser
+        // tabs are expanded as windows, every tab tile shares the parent app icon
+        // and thumbnail, so the tab title is the *only* thing distinguishing
+        // siblings — keep the band (uniformly, so tile heights stay aligned) even
+        // when both labels are otherwise hidden.
+        let previewLabelAreaH = (layoutMode == .windowPreview && bothLabelsHidden && !browserTabsExpanded)
             ? 0
             : round(basePreviewLabelArea * scale)
 
