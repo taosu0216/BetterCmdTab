@@ -747,13 +747,16 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     private func pushHotkeyConfig() {
-        let app = Self.hotkeyTrigger(for: .switchApps, defaultKey: 48)
-        let window = Self.hotkeyTrigger(for: .switchWindows, defaultKey: 50)
+        let app = Self.hotkeyTrigger(for: .switchApps)
+        let window = Self.hotkeyTrigger(for: .switchWindows)
+        // A disabled trigger pushes a nil key: the tap matches nothing for it and
+        // ⌘Tab/⌘` falls through to the OS. The modifier is irrelevant then (the
+        // tap gates the match on the key being present), so default it to empty.
         hotkey.updateConfig(HotkeyTap.Config(
-            appModifier: app.modifier,
-            appKey: app.key,
-            windowModifier: window.modifier,
-            windowKey: window.key
+            appModifier: app?.modifier ?? [],
+            appKey: app?.key,
+            windowModifier: window?.modifier ?? [],
+            windowKey: window?.key
         ))
         syncNativeHotkeyOverride()
     }
@@ -825,23 +828,29 @@ final class SwitcherController: SwitcherViewDelegate {
             applyOverridePlan(NativeOverridePlan(symbolicKeysToDisable: [], carbonChords: []))
             return
         }
-        let app = Self.carbonTrigger(for: .switchApps, defaultKey: 48)
-        let window = Self.carbonTrigger(for: .switchWindows, defaultKey: 50)
+        // `nil` = the user cleared that shortcut, so the trigger is disabled and
+        // reserves no native chord (the plan drops its symbolic disable + chords).
+        let app = Self.carbonTrigger(for: .switchApps)
+        let window = Self.carbonTrigger(for: .switchWindows)
         let spec = TriggerSpec(
-            appKeyCode: app.keyCode,
-            appCarbonModifiers: app.carbonModifiers,
-            appIsCommandOnly: app.isCommandOnly,
-            windowKeyCode: window.keyCode,
-            windowCarbonModifiers: window.carbonModifiers,
-            windowIsCommandOnly: window.isCommandOnly
+            appEnabled: app != nil,
+            appKeyCode: app?.keyCode ?? 0,
+            appCarbonModifiers: app?.carbonModifiers ?? 0,
+            appIsCommandOnly: app?.isCommandOnly ?? false,
+            windowEnabled: window != nil,
+            windowKeyCode: window?.keyCode ?? 0,
+            windowCarbonModifiers: window?.carbonModifiers ?? 0,
+            windowIsCommandOnly: window?.isCommandOnly ?? false
         )
         let panelOpen = phase != .idle
         // The hold-modifier poller detects ⌘-release (no event is delivered for
         // it under secure input) and supplies the live hold state that gates the
         // in-panel chords. Needed only while the panel is open under secure input.
+        // Poll whichever trigger is live (app wins when both exist).
         if secureInputActive && panelOpen {
             if !holdMonitorRunning {
-                holdMonitor.start(mask: Self.holdMask(for: app.carbonModifiers), assumeHeld: true)
+                let holdMods = app?.carbonModifiers ?? window?.carbonModifiers ?? UInt32(cmdKey)
+                holdMonitor.start(mask: Self.holdMask(for: holdMods), assumeHeld: true)
                 holdMonitorRunning = true
             }
         } else if holdMonitorRunning {
@@ -904,12 +913,13 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Live check of `releaseAlreadyMissed` against the current physical modifier
     /// state (`CGEventSource.flagsState` keeps reporting under Secure Event Input).
     private func holdReleaseAlreadyMissed() -> Bool {
-        let appTrigger = Self.carbonTrigger(for: .switchApps, defaultKey: 48)
-        let windowTrigger = Self.carbonTrigger(for: .switchWindows, defaultKey: 50)
+        // A disabled trigger contributes an empty mask (holds nothing).
+        let appTrigger = Self.carbonTrigger(for: .switchApps)
+        let windowTrigger = Self.carbonTrigger(for: .switchWindows)
         return Self.releaseAlreadyMissed(
             flags: CGEventSource.flagsState(.combinedSessionState),
-            appMask: Self.holdMask(for: appTrigger.carbonModifiers),
-            windowMask: Self.holdMask(for: windowTrigger.carbonModifiers)
+            appMask: Self.holdMask(for: appTrigger?.carbonModifiers ?? 0),
+            windowMask: Self.holdMask(for: windowTrigger?.carbonModifiers ?? 0)
         )
     }
 
@@ -1095,15 +1105,17 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     /// Decompose a recorded shortcut into a held modifier mask + tap keycode for
-    /// the CGEvent tap. Falls back to Command + `defaultKey` when unset. Shift is
-    /// dropped (reserved for reverse stepping); a hold modifier is guaranteed
-    /// because the recorder rejects shortcuts without one.
+    /// the CGEvent tap. Returns `nil` when the user *cleared* the shortcut, so the
+    /// trigger is disabled rather than re-armed on the default chord — `getShortcut`
+    /// already resolves the declared default for a never-set shortcut, so a `nil`
+    /// here means an explicit disable. Shift is dropped (reserved for reverse
+    /// stepping); a hold modifier is guaranteed because the recorder rejects
+    /// shortcuts without one.
     private static func hotkeyTrigger(
-        for name: BetterShortcuts.Name,
-        defaultKey: Int64
-    ) -> (modifier: CGEventFlags, key: Int64) {
+        for name: BetterShortcuts.Name
+    ) -> (modifier: CGEventFlags, key: Int64)? {
         guard let shortcut = BetterShortcuts.getShortcut(for: name) else {
-            return (.maskCommand, defaultKey)
+            return nil
         }
         var flags: CGEventFlags = []
         let modifiers = shortcut.modifiers
@@ -1115,9 +1127,10 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     /// Carbon view of a configured trigger, for `RegisterEventHotKey` and native
-    /// symbolic-hotkey matching. Mirrors `hotkeyTrigger(for:defaultKey:)` but in
-    /// Carbon terms: a Carbon keycode + Carbon modifier mask, plus whether the
-    /// hold modifier is exactly Command (used to decide symbolic-hotkey overlap).
+    /// symbolic-hotkey matching. Mirrors `hotkeyTrigger(for:)` but in Carbon
+    /// terms: a Carbon keycode + Carbon modifier mask, plus whether the hold
+    /// modifier is exactly Command (used to decide symbolic-hotkey overlap).
+    /// `nil` when the user cleared the shortcut (the trigger is disabled).
     private struct CarbonTrigger {
         let keyCode: UInt32
         let carbonModifiers: UInt32
@@ -1125,11 +1138,10 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     private static func carbonTrigger(
-        for name: BetterShortcuts.Name,
-        defaultKey: UInt32
-    ) -> CarbonTrigger {
+        for name: BetterShortcuts.Name
+    ) -> CarbonTrigger? {
         guard let shortcut = BetterShortcuts.getShortcut(for: name) else {
-            return CarbonTrigger(keyCode: defaultKey, carbonModifiers: UInt32(cmdKey), isCommandOnly: true)
+            return nil
         }
         let modifiers = shortcut.modifiers
         var carbon: UInt32 = 0
