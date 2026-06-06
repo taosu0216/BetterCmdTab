@@ -88,6 +88,16 @@ final class HoverActionBar: NSView {
         return NSSize(width: width, height: d)
     }
 
+    /// Width the bar occupies for `count` visible dots at `scale`, without needing
+    /// a live instance. `SwitcherMetrics` uses this to reserve a List-layout column
+    /// for the bar when app names are hidden (otherwise the dots overlap the title).
+    nonisolated static func contentWidth(visibleCount count: Int, scale: CGFloat) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let d = round(baseDotSize * scale)
+        let s = round(baseSpacing * scale)
+        return CGFloat(count) * d + CGFloat(count - 1) * s
+    }
+
     /// Apply the current switcher scale to the bar so its dots match the
     /// active panel size. Triggers a relayout of the visible dots.
     func setScale(_ value: CGFloat) {

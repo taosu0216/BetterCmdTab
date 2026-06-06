@@ -34,6 +34,33 @@ struct CatalogFilterTests {
         #expect(!config(sortOrder: .mruWindows).isIdentity)
     }
 
+    // MARK: - applications-only collapse
+
+    @Test("applications-only keeps the first window of each app")
+    func applicationsOnlyCollapsesByPid() {
+        // pids 7,7,9,7,9 → keep first 7 (idx 0) and first 9 (idx 2).
+        let kept = CatalogFilter.keptApplicationIndices(
+            pids: [7, 7, 9, 7, 9],
+            placeholders: [false, false, false, false, false])
+        #expect(kept == [0, 2])
+    }
+
+    @Test("applications-only passes through pid-less and placeholder rows")
+    func applicationsOnlyKeepsSpecialRows() {
+        // nil pid (launchable / recently-closed) is always kept; duplicate pids
+        // still collapse around them.
+        let pidless = CatalogFilter.keptApplicationIndices(
+            pids: [nil, 4, 4, nil],
+            placeholders: [false, false, false, false])
+        #expect(pidless == [0, 1, 3])
+
+        // A placeholder row is kept even though its pid duplicates a real row's.
+        let withPlaceholder = CatalogFilter.keptApplicationIndices(
+            pids: [5, 5],
+            placeholders: [true, false])
+        #expect(withPlaceholder == [0, 1])
+    }
+
     // MARK: - includes
 
     @Test("permissive config keeps minimized and hidden rows")

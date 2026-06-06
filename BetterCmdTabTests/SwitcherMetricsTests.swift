@@ -15,6 +15,91 @@ struct SwitcherMetricsTests {
         #expect(m.appNameWidth == SwitcherMetrics.baseAppNameWidth)
     }
 
+    @Test("hiding app names zeroes the column and narrows the list row")
+    func hideAppNamesNarrowsList() {
+        let shown = SwitcherMetrics.forScale(1.0, layoutMode: .list, showAppNames: true)
+        let hidden = SwitcherMetrics.forScale(1.0, layoutMode: .list, showAppNames: false)
+
+        #expect(shown.appNameWidth == SwitcherMetrics.baseAppNameWidth)
+        #expect(hidden.appNameWidth == 0)
+        // List panel width drops by the freed app-name column plus its inter-gap.
+        #expect(hidden.rowWidth == SwitcherMetrics.baseRowWidth
+                - SwitcherMetrics.baseAppNameWidth - SwitcherMetrics.baseInterGap)
+        #expect(shown.rowWidth == SwitcherMetrics.baseRowWidth)
+    }
+
+    @Test("showAppNames does not affect grid/preview metrics")
+    func hideAppNamesGridUnaffected() {
+        let shown = SwitcherMetrics.forScale(1.0, layoutMode: .gridView, showAppNames: true)
+        let hidden = SwitcherMetrics.forScale(1.0, layoutMode: .gridView, showAppNames: false)
+        #expect(shown.rowWidth == hidden.rowWidth)
+        #expect(shown.tileSize == hidden.tileSize)
+    }
+
+    @Test("grid tile label area: full → compact when one hidden → zero when both hidden")
+    func gridCompactLabelArea() {
+        let full = SwitcherMetrics.forScale(1.0, layoutMode: .gridView, showAppNames: true, showWindowTitles: true)
+        let nameOff = SwitcherMetrics.forScale(1.0, layoutMode: .gridView, showAppNames: false, showWindowTitles: true)
+        let titleOff = SwitcherMetrics.forScale(1.0, layoutMode: .gridView, showAppNames: true, showWindowTitles: false)
+        let bothOff = SwitcherMetrics.forScale(1.0, layoutMode: .gridView, showAppNames: false, showWindowTitles: false)
+        // Two stacked lines only when both labels are shown.
+        #expect(full.tileLabelArea == SwitcherMetrics.baseTileLabelArea)
+        // Hiding one label drops a line; the surviving label + glyphs ride a single
+        // slim row.
+        #expect(nameOff.tileLabelArea == SwitcherMetrics.baseTileCompactLabelArea)
+        #expect(titleOff.tileLabelArea == SwitcherMetrics.baseTileCompactLabelArea)
+        // Hiding both drops the label area entirely → bare icon-only tile.
+        #expect(bothOff.tileLabelArea == 0)
+    }
+
+    @Test("hidden app names reserve a list column for the hover action bar")
+    func hiddenNamesReserveHoverColumn() {
+        // No hover actions → the name column fully collapses (panel stays narrow).
+        let none = SwitcherMetrics.forScale(1.0, layoutMode: .list, showAppNames: false, hoverActionCount: 0)
+        #expect(none.appNameWidth == 0)
+
+        // Six dots: reserve the part of the bar that doesn't fit the letter column.
+        let many = SwitcherMetrics.forScale(1.0, layoutMode: .list, showAppNames: false, hoverActionCount: 6)
+        let barW = HoverActionBar.contentWidth(visibleCount: 6, scale: 1.0)
+        let expected = max(0, barW - SwitcherMetrics.baseLetterColumnWidth - SwitcherMetrics.baseInterGap)
+        #expect(expected > 0)
+        #expect(many.appNameWidth == expected)
+        // The reserved column is added back to the row width vs the no-hover collapse.
+        #expect(many.rowWidth == SwitcherMetrics.baseRowWidth - SwitcherMetrics.baseAppNameWidth + expected)
+    }
+
+    @Test("preview label area collapses to 0 whenever the window title is hidden")
+    func previewLabelAreaCollapse() {
+        let full = SwitcherMetrics.forScale(1.0, layoutMode: .windowPreview, showAppNames: true, showWindowTitles: true)
+        let nameOff = SwitcherMetrics.forScale(1.0, layoutMode: .windowPreview, showAppNames: false, showWindowTitles: true)
+        let titleOff = SwitcherMetrics.forScale(1.0, layoutMode: .windowPreview, showAppNames: true, showWindowTitles: false)
+        let bothOff = SwitcherMetrics.forScale(1.0, layoutMode: .windowPreview, showAppNames: false, showWindowTitles: false)
+        #expect(full.previewLabelArea == SwitcherMetrics.basePreviewLabelArea)
+        #expect(nameOff.previewLabelArea == SwitcherMetrics.basePreviewLabelArea)   // title shown → keep the band
+        // The preview band only ever shows the window title (the app icon is
+        // decorative), so hiding the title reclaims the band regardless of the
+        // app-name toggle — symmetric to letterHints collapsing the top strip.
+        #expect(titleOff.previewLabelArea == 0)
+        #expect(bothOff.previewLabelArea == 0)
+    }
+
+    @Test("preview label band survives both-labels-off when browser tabs are expanded")
+    func previewLabelAreaKeptForBrowserTabs() {
+        // Browser-tab tiles share the parent app icon + thumbnail, so the tab title
+        // is the only distinguisher — the band must stay even with both labels off.
+        let bothOffExpanded = SwitcherMetrics.forScale(
+            1.0, layoutMode: .windowPreview,
+            showAppNames: false, showWindowTitles: false, browserTabsExpanded: true)
+        #expect(bothOffExpanded.previewLabelArea == SwitcherMetrics.basePreviewLabelArea)
+
+        // Expansion only matters for the both-off preview case; grid ignores it and
+        // still drops its label area to zero (icon-only) when both labels are hidden.
+        let grid = SwitcherMetrics.forScale(
+            1.0, layoutMode: .gridView,
+            showAppNames: false, showWindowTitles: false, browserTabsExpanded: true)
+        #expect(grid.tileLabelArea == 0)
+    }
+
     @Test("scale clamps high values to 1.8")
     func upperClamp() {
         // forScreen with a 4K screen would normally raise scale beyond 1.8;

@@ -566,7 +566,7 @@ final class SwitcherView: NSView, TabStripDelegate {
         var candidate = base
         while scale > minScale + 0.001 {
             scale = max(minScale, scale - 0.05)
-            candidate = SwitcherMetrics.forScale(scale, layoutMode: base.layoutMode, letterHints: letterHints)
+            candidate = SwitcherMetrics.forScale(scale, layoutMode: base.layoutMode, letterHints: letterHints, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
             if fits(candidate) { return candidate }
         }
         return candidate

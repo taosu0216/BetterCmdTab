@@ -184,17 +184,18 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
         // the window title with the System Settings icon — no status icons.
         let isDialog = row.isSystemDialog
 
+        let showAppNames = Preferences.shared.showApplicationNames
         if isDialog {
             appNameLabel.stringValue = row.windowTitle.isEmpty ? row.appName : row.windowTitle
             titleLabel.stringValue = ""
         } else {
-            appNameLabel.stringValue = row.appName
+            appNameLabel.stringValue = row.appNameSlot(showAppNames: showAppNames)
             if row.isLaunchable {
                 titleLabel.stringValue = String(localized: "Launch")
             } else if row.isRecentlyClosed {
                 titleLabel.stringValue = row.windowTitle.isEmpty ? String(localized: "Reopen") : row.windowTitle
             } else {
-                titleLabel.stringValue = row.displayTitle
+                titleLabel.stringValue = row.titleSlot(showAppNames: showAppNames)
             }
         }
         imageView.image = isDialog ? SystemSettingsIcon.image : IconCache.icon(for: row)
@@ -363,7 +364,10 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
         let appX = letterX + m.letterColumnWidth + m.interGap
         appNameLabel.frame = NSRect(x: appX, y: labelY, width: m.appNameWidth, height: labelH)
 
-        let iconX = appX + m.appNameWidth + m.interGap
+        // When the app-name column is collapsed (names hidden) there is no label
+        // between the letter column and the icon — drop its trailing gap so the
+        // icon doesn't float on a double gap. Matches the rowWidth reduction.
+        let iconX = appX + m.appNameWidth + (m.appNameWidth > 0 ? m.interGap : 0)
         imageView.frame = NSRect(x: iconX, y: iconY, width: m.iconSize, height: m.iconSize)
 
         let visibleStatusIcons = indicatorViews.map { $0.1 }.filter { !$0.isHidden }

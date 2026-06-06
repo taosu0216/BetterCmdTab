@@ -408,7 +408,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // `baseRows`, not `rows`: in fuzzy-search mode an empty filtered result
         // is still a visible panel that must track screen changes.
         guard phase == .visible, !baseRows.isEmpty else { return }
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
         refreshDisplay()
     }
 
@@ -1244,6 +1244,22 @@ final class SwitcherController: SwitcherViewDelegate {
         return filtered
     }
 
+    /// Collapse the rows to one per application when "Applications only" is on —
+    /// classic ⌘Tab. Applied only on the app-switch reveal paths, never on the
+    /// window-level ones: the ⌘` windows-only mode and the current-app /
+    /// minimized scopes keep every window so they stay useful even while the
+    /// global toggle is on (that's the whole point of ⌘` — see the user's per-app
+    /// vs per-window split). All other scopes (and plain ⌘Tab) collapse.
+    private func applyApplicationsOnly(_ rows: [SwitcherRow]) -> [SwitcherRow] {
+        guard Preferences.shared.applicationsOnly, !windowsOnlyMode else { return rows }
+        switch activeScope {
+        case .currentAppWindows, .minimizedOnly:
+            return rows
+        case .allAppsAllSpaces, .allAppsCurrentSpace, .none:
+            return CatalogFilter.collapseToApplications(rows)
+        }
+    }
+
     private func prewarmPanel() {
         let placeholder = SwitcherRow(
             app: NSRunningApplication.current,
@@ -1798,9 +1814,9 @@ final class SwitcherController: SwitcherViewDelegate {
         let targetPid = snapshotApps.indices.contains(targetIdx)
             ? snapshotApps[targetIdx].processIdentifier : nil
 
-        let cachedRows = applyWindowMRUSort(
+        let cachedRows = applyApplicationsOnly(applyWindowMRUSort(
             Log.reveal.withIntervalSignpost("catalog.rows") { cache.rows(orderedBy: mru.order) }
-        )
+        ))
         let hadCachedRows = !cachedRows.isEmpty
         if hadCachedRows {
             baseRows = cachedRows
@@ -1867,7 +1883,7 @@ final class SwitcherController: SwitcherViewDelegate {
         }
         guard !rows.isEmpty else { cancel(); return }
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
         view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
@@ -1960,7 +1976,7 @@ final class SwitcherController: SwitcherViewDelegate {
         let delta = windowsOnlyPrimedDelta
         index = count > 0 ? ((delta % count) + count) % count : 0
 
-        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled)
+        currentMetrics = SwitcherMetrics.forScreen(SwitcherPanel.preferredScreen(), layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
         view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
         panel.present()
         phase = .visible
@@ -2046,8 +2062,10 @@ final class SwitcherController: SwitcherViewDelegate {
         // app, falling back to `anchorPid` only if the row is gone.
         // Re-expand inline browser-tab rows from the (warm) per-session cache so a
         // background refresh doesn't visibly collapse them back to one row; then
-        // scan any browser window that newly appeared.
-        baseRows = expandBrowserTabs(applyWindowMRUSort(next))
+        // scan any browser window that newly appeared. Collapse to one row per app
+        // AFTER the window-MRU sort — matching `reveal()` — so the representative
+        // window each app keeps is identical across the reveal→refresh transition.
+        baseRows = expandBrowserTabs(applyApplicationsOnly(applyWindowMRUSort(next)))
         baseLabels = RowLabels.labels(for: baseRows)
         refreshDisplay(anchorPid: anchorPid)
         scheduleBrowserTabExpansion()
@@ -2165,7 +2183,10 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Already-expanded tab rows pass through untouched, so re-applying is
     /// idempotent. No-op (returns the input) when the pref is off — pure, no AX.
     private func expandBrowserTabs(_ source: [SwitcherRow]) -> [SwitcherRow] {
-        guard Preferences.shared.expandBrowserTabsAsWindows else { return source }
+        // Applications-only mode collapses to one row per app; re-expanding a
+        // browser into per-tab rows would defeat it, so leave the rows untouched.
+        guard Preferences.shared.expandBrowserTabsAsWindows,
+              !Preferences.shared.applicationsOnly else { return source }
         var out: [SwitcherRow] = []
         out.reserveCapacity(source.count)
         for row in source {
@@ -2398,10 +2419,11 @@ final class SwitcherController: SwitcherViewDelegate {
     private func primedWindowMRUTargetRow() -> SwitcherRow? {
         // Signposted so the fast tap-release sort cost can be read in Instruments
         // (Points of Interest, category "reveal"); near-zero when not recording.
-        // Reuses `applyWindowMRUSort` deliberately so the row a fast tap activates
-        // is byte-identical to the one a held-open panel would select.
+        // Reuses `applyWindowMRUSort` + `applyApplicationsOnly` deliberately so the
+        // row a fast tap activates is byte-identical to the one a held-open panel
+        // would select (the held panel collapses after the sort — see `reveal()`).
         let sorted = Log.reveal.withIntervalSignpost("primed.windowMRU") {
-            applyWindowMRUSort(cache.rows(orderedBy: mru.order))
+            applyApplicationsOnly(applyWindowMRUSort(cache.rows(orderedBy: mru.order)))
         }
         guard !sorted.isEmpty else { return nil }
         let idx = ((primedStepDelta % sorted.count) + sorted.count) % sorted.count
@@ -3216,7 +3238,10 @@ final class SwitcherController: SwitcherViewDelegate {
                 // browser window's tabs back to one row (e.g. after closing a tab,
                 // the panel would show just the window until the user re-opened).
                 // Then rescan so a tab added/closed since the cache stamp shows.
-                self.baseRows = self.expandBrowserTabs(fresh)
+                // Collapse to one row per app when "Applications only" is on — the
+                // reveal paths do this; without it the first in-panel window action's
+                // refresh would re-expand the panel to one row per window.
+                self.baseRows = self.expandBrowserTabs(self.applyApplicationsOnly(fresh))
                 self.baseLabels = RowLabels.labels(for: self.baseRows)
                 self.refreshDisplay()
                 self.scheduleBrowserTabExpansion()

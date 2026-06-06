@@ -396,6 +396,7 @@ final class Preferences: ObservableObject {
         static let showMinimizedWindows = "Switcher.showMinimizedWindows"
         static let showHiddenApps = "Switcher.showHiddenApps"
         static let showWindowlessApps = "Switcher.showWindowlessApps"
+        static let applicationsOnly = "Switcher.applicationsOnly"
         static let fuzzySearchEnabled = "Switcher.fuzzySearchEnabled"
         static let letterHintsEnabled = "Switcher.letterHintsEnabled"
         static let searchDismissMode = "Switcher.searchDismissMode"
@@ -437,6 +438,7 @@ final class Preferences: ObservableObject {
         /// read once at launch to carry a user's earlier choice over to the new key.
         static let legacyUnreadBadges = "Switcher.experimentalUnreadBadges"
         static let showWindowTitleLabel = "Switcher.showWindowTitleLabel"
+        static let showApplicationNames = "Switcher.showApplicationNames"
         static let panelOpacity = "Switcher.panelOpacity"
         static let panelCornerRadius = "Switcher.panelCornerRadius"
         static let customAccentHex = "Switcher.customAccentHex"
@@ -575,6 +577,19 @@ final class Preferences: ObservableObject {
         didSet {
             guard oldValue != showWindowlessApps else { return }
             UserDefaults.standard.set(showWindowlessApps, forKey: Keys.showWindowlessApps)
+        }
+    }
+
+    /// Collapse the switcher to one row per application instead of one row per
+    /// window — classic macOS ⌘Tab. The representative row is the app's frontmost
+    /// window (so selecting it activates the app); native/browser tab expansion is
+    /// suppressed while on. Default `false` (per-window). Read directly off
+    /// `UserDefaults` by `CatalogFilter` on the catalog thread, so the key string
+    /// is the contract.
+    @Published var applicationsOnly: Bool {
+        didSet {
+            guard oldValue != applicationsOnly else { return }
+            UserDefaults.standard.set(applicationsOnly, forKey: Keys.applicationsOnly)
         }
     }
 
@@ -827,6 +842,16 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Show the application name in every switcher layout (List right column,
+    /// Grid name-under-icon, and any app-name fallback in Previews). Default on.
+    /// Off = strict icon-only.
+    @Published var showApplicationNames: Bool {
+        didSet {
+            guard oldValue != showApplicationNames else { return }
+            UserDefaults.standard.set(showApplicationNames, forKey: Keys.showApplicationNames)
+        }
+    }
+
     /// Panel opacity as a 30–100 percentage. Default 100 (fully opaque).
     @Published var panelOpacity: Int {
         didSet {
@@ -957,6 +982,21 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Number of hover-action dots the bar will show, or 0 when the feature is
+    /// off. The List layout reserves a column this wide when app names are hidden
+    /// so the bar doesn't overlap the window title.
+    var enabledHoverActionCount: Int {
+        guard hoverActionsEnabled else { return 0 }
+        var n = 0
+        if hoverShowClose { n += 1 }
+        if hoverShowMinimize { n += 1 }
+        if hoverShowMaximize { n += 1 }
+        if hoverShowHide { n += 1 }
+        if hoverShowQuit { n += 1 }
+        if hoverShowForceQuit { n += 1 }
+        return n
+    }
+
     /// Hide the switcher panel from screen recording / sharing capture
     /// (Zoom, Meet, Teams, QuickTime, ScreenCaptureKit). Default off.
     /// Requires macOS 14.6+ for `NSWindowSharingType.none` to be honored by
@@ -1066,6 +1106,7 @@ final class Preferences: ObservableObject {
         self.showMinimizedWindows = defaults.object(forKey: Keys.showMinimizedWindows) as? Bool ?? true
         self.showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
         self.showWindowlessApps = defaults.object(forKey: Keys.showWindowlessApps) as? Bool ?? true
+        self.applicationsOnly = defaults.object(forKey: Keys.applicationsOnly) as? Bool ?? false
         self.fuzzySearchEnabled = defaults.object(forKey: Keys.fuzzySearchEnabled) as? Bool ?? true
         self.letterHintsEnabled = defaults.object(forKey: Keys.letterHintsEnabled) as? Bool ?? true
 
@@ -1111,6 +1152,7 @@ final class Preferences: ObservableObject {
         }
 
         self.showWindowTitleLabel = defaults.object(forKey: Keys.showWindowTitleLabel) as? Bool ?? true
+        self.showApplicationNames = defaults.object(forKey: Keys.showApplicationNames) as? Bool ?? true
         let opacity = defaults.object(forKey: Keys.panelOpacity) as? Int ?? 100
         self.panelOpacity = Self.clampOpacity(opacity)
         let radius = defaults.object(forKey: Keys.panelCornerRadius) as? Int ?? 0
@@ -1159,6 +1201,7 @@ final class Preferences: ObservableObject {
         showMinimizedWindows = defaults.object(forKey: Keys.showMinimizedWindows) as? Bool ?? true
         showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
         showWindowlessApps = defaults.object(forKey: Keys.showWindowlessApps) as? Bool ?? true
+        applicationsOnly = defaults.object(forKey: Keys.applicationsOnly) as? Bool ?? false
         fuzzySearchEnabled = defaults.object(forKey: Keys.fuzzySearchEnabled) as? Bool ?? true
         letterHintsEnabled = defaults.object(forKey: Keys.letterHintsEnabled) as? Bool ?? true
         searchDismissMode = defaults.string(forKey: Keys.searchDismissMode).flatMap(SearchDismissMode.init(rawValue:)) ?? .holdModifier
@@ -1187,6 +1230,7 @@ final class Preferences: ObservableObject {
         showUnreadBadges = defaults.object(forKey: Keys.showUnreadBadges) as? Bool ?? true
 
         showWindowTitleLabel = defaults.object(forKey: Keys.showWindowTitleLabel) as? Bool ?? true
+        showApplicationNames = defaults.object(forKey: Keys.showApplicationNames) as? Bool ?? true
         panelOpacity = Self.clampOpacity(defaults.object(forKey: Keys.panelOpacity) as? Int ?? 100)
         panelCornerRadius = Self.clampCornerRadius(defaults.object(forKey: Keys.panelCornerRadius) as? Int ?? 0)
         customAccentHex = defaults.string(forKey: Keys.customAccentHex)

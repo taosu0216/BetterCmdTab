@@ -50,6 +50,66 @@ struct SwitcherRowTests {
         #expect(row.displayTitle == row.appName)
     }
 
+    @Test("windowTitleText is empty when the row would fall back to the app name")
+    func windowTitleTextHidesAppNameFallback() {
+        // window == nil → displayTitle returns appName, windowTitleText returns "".
+        let nilWin = SwitcherRow(app: hostApp, window: nil, windowTitle: "stale title", isMinimized: false)
+        #expect(nilWin.windowTitleText == "")
+
+        // placeholder → "".
+        let placeholder = SwitcherRow(app: hostApp, window: nil, windowTitle: "ignored",
+                                      isMinimized: false, isPlaceholder: true)
+        #expect(placeholder.windowTitleText == "")
+
+        // launchable → window is nil → "".
+        let installed = InstalledApp(name: "Widget Studio", bundleID: "com.example.widgetstudio",
+                                     url: URL(fileURLWithPath: "/Applications/Widget Studio.app"))
+        #expect(SwitcherRow(launchable: installed).windowTitleText == "")
+    }
+
+    @Test("windowTitleText returns the real window title when one exists")
+    func windowTitleTextKeepsRealTitle() {
+        // Non-nil window with a title → windowTitleText == that title (not the app name).
+        let row = SwitcherRow(app: hostApp, window: axElement(), windowTitle: "Inbox — Mail",
+                              isMinimized: false, cgWindowID: 99)
+        #expect(row.windowTitleText == "Inbox — Mail")
+    }
+
+    @Test("windowTitleText falls back to the app name for a blank-titled real window")
+    func windowTitleTextBlankTitleFallsBackToAppName() {
+        // A real window with an empty AX title (PWA / some Electron windows) must
+        // surface the app name, not an empty string — the Grid names-hidden tile
+        // relies on this so it never renders a textless icon.
+        let row = SwitcherRow(app: hostApp, window: axElement(), windowTitle: "",
+                              isMinimized: false, cgWindowID: 7)
+        #expect(row.windowTitleText == row.appName)
+        #expect(!row.windowTitleText.isEmpty)
+    }
+
+    @Test("recently-closed rows keep their title, and fall back to app name when blank")
+    func recentlyClosedTitleSlots() {
+        // Entry with a real title → titleSlot/windowTitleText return it; the app-name
+        // slot is empty when names are hidden and the app name when shown.
+        let titled = SwitcherRow(recentlyClosed: RecentEntry(
+            bundleID: "com.example.notes", appName: "Notes", title: "Groceries",
+            documentPath: nil, closedAt: Date()))
+        #expect(titled.windowTitleText == "Groceries")
+        #expect(titled.titleSlot(showAppNames: false) == "Groceries")
+        #expect(titled.titleSlot(showAppNames: true) == "Groceries")
+        #expect(titled.appNameSlot(showAppNames: false) == "")
+        #expect(titled.appNameSlot(showAppNames: true) == "Notes")
+
+        // App-level reopen entry with a blank title (RecentlyClosedStore records ⌘Q
+        // with title: "") must fall back to the app name, not render blank — the
+        // Previews layout shows windowTitleText verbatim with no "Reopen" fallback.
+        let blank = SwitcherRow(recentlyClosed: RecentEntry(
+            bundleID: "com.example.notes", appName: "Notes", title: "",
+            documentPath: nil, closedAt: Date()))
+        #expect(blank.windowTitleText == "Notes")
+        #expect(blank.titleSlot(showAppNames: false) == "Notes")
+        #expect(blank.titleSlot(showAppNames: true) == "Notes")
+    }
+
     @Test("empty window title falls back to app name")
     func emptyTitleFallback() {
         // window must be non-nil to enter the title branch — but we can't

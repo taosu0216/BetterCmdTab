@@ -274,6 +274,36 @@ struct SwitcherRow {
         if window == nil { return appName }
         return windowTitle.isEmpty ? appName : windowTitle
     }
+
+    /// The window-title portion only — falls back to `appName` when the window title
+    /// is empty (e.g. PWAs whose AX title is blank). Used by the "Show application
+    /// names" = off path. Windowless rows and placeholders still return "".
+    var windowTitleText: String {
+        if isPlaceholder { return "" }
+        // Mirror `displayTitle`'s fallback: a recently-closed entry with a blank
+        // title (e.g. an app-level reopen recorded on ⌘Q) keeps the app name so the
+        // Previews layout — which renders this verbatim with no "Reopen" fallback —
+        // never shows a fully blank tile.
+        if case .recentlyClosed(let entry) = subject {
+            return entry.title.isEmpty ? appName : entry.title
+        }
+        if window == nil { return "" }
+        return windowTitle.isEmpty ? appName : windowTitle
+    }
+
+    /// Text for the dedicated app-name slot (List right column, Grid name-under-
+    /// icon). Empty when the user hid application names. The single source of this
+    /// rule so the layouts can't drift; dialog rows handle their own label inline.
+    func appNameSlot(showAppNames: Bool) -> String {
+        showAppNames ? appName : ""
+    }
+
+    /// Text for the primary title slot: the full `displayTitle` when app names are
+    /// shown, or the window-title-only `windowTitleText` when hidden (so hiding
+    /// names never re-surfaces the app name as a title). Shared by List and Previews.
+    func titleSlot(showAppNames: Bool) -> String {
+        showAppNames ? displayTitle : windowTitleText
+    }
 }
 
 /// Cached System Settings app icon, used for system permission/dialog rows.

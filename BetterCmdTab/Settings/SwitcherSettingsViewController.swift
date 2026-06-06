@@ -12,6 +12,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
     private let minimizedSwitch = NSSwitch()
     private let hiddenSwitch = NSSwitch()
     private let windowlessSwitch = NSSwitch()
+    private let applicationsOnlySwitch = NSSwitch()
     private let badgesSwitch = NSSwitch()
     private let currentSpaceSwitch = NSSwitch()
     private let recentlyClosedSwitch = NSSwitch()
@@ -65,6 +66,10 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         addRow(to: contents, title: String(localized: "Show apps without windows"),
                subtitle: String(localized: "Running apps with no open windows."),
                accessory: windowlessSwitch, searchItemID: SearchID.showWindowless)
+        configureSwitch(applicationsOnlySwitch, action: #selector(toggleApplicationsOnly(_:)))
+        addRow(to: contents, title: String(localized: "Applications only"),
+               subtitle: String(localized: "Show one row per app instead of one per window — classic ⌘Tab."),
+               accessory: applicationsOnlySwitch, searchItemID: SearchID.applicationsOnly)
         configureSwitch(badgesSwitch, action: #selector(toggleBadges(_:)))
         addRow(to: contents, title: String(localized: "Show unread badges"),
                subtitle: String(localized: "Show each app's Dock badge count (e.g. Mail's unread mail) on its row."),
@@ -227,6 +232,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         minimizedSwitch.state = prefs.showMinimizedWindows ? .on : .off
         hiddenSwitch.state = prefs.showHiddenApps ? .on : .off
         windowlessSwitch.state = prefs.showWindowlessApps ? .on : .off
+        applicationsOnlySwitch.state = prefs.applicationsOnly ? .on : .off
         badgesSwitch.state = prefs.showUnreadBadges ? .on : .off
         currentSpaceSwitch.state = prefs.currentSpaceOnly ? .on : .off
         selectSortOrder(prefs.sortOrder)
@@ -282,6 +288,10 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
 
     @objc private func toggleWindowless(_ sender: NSSwitch) {
         Preferences.shared.showWindowlessApps = (sender.state == .on)
+    }
+
+    @objc private func toggleApplicationsOnly(_ sender: NSSwitch) {
+        Preferences.shared.applicationsOnly = (sender.state == .on)
     }
 
     @objc private func toggleBadges(_ sender: NSSwitch) {

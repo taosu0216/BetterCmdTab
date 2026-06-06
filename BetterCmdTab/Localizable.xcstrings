@@ -6259,6 +6259,62 @@
         }
       }
     },
+    "Applications only" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Apps"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo aplicaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applications uniquement"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko aplikacje"
+          }
+        }
+      }
+    },
+    "Show one row per app instead of one per window — classic ⌘Tab." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Zeile pro App statt pro Fenster – klassisches ⌘Tab."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra una fila por app en vez de una por ventana: ⌘Tab clásico."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche une ligne par app au lieu d’une par fenêtre — ⌘Tab classique."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj jeden wiersz na aplikację zamiast na okno — klasyczny ⌘Tab."
+          }
+        }
+      }
+    },
     "Show browser tabs as separate entries" : {
       "localizations" : {
         "de" : {
@@ -7938,6 +7994,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Powiększ okno"
+          }
+        }
+      }
+    },
+    "Show application names" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Namen anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar nombres de aplicaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les noms des applications"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj nazwy aplikacji"
+          }
+        }
+      }
+    },
+    "Hide the app name in every layout; identify apps by their icon." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blendet den App-Namen in allen Layouts aus; Apps werden am Symbol erkannt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oculta el nombre de la aplicación en todas las disposiciones; identifica las apps por su icono."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masque le nom de l’application dans toutes les dispositions ; identifiez les apps par leur icône."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukrywa nazwę aplikacji we wszystkich układach; rozpoznawaj aplikacje po ikonie."
           }
         }
       }

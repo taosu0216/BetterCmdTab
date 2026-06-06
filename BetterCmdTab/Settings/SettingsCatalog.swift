@@ -78,6 +78,7 @@ enum SearchID {
     static let showMinimized = "switcher.showMinimized"
     static let showHidden = "switcher.showHidden"
     static let showWindowless = "switcher.showWindowless"
+    static let applicationsOnly = "switcher.applicationsOnly"
     static let showBadges = "switcher.showBadges"
     static let currentSpaceOnly = "switcher.currentSpaceOnly"
     static let sortOrder = "switcher.sortOrder"
@@ -88,6 +89,7 @@ enum SearchID {
     static let expandBrowserTabs = "switcher.expandBrowserTabs"
     static let tabPermissions = "switcher.tabPermissions"
     static let letterHints = "switcher.letterHints"
+    static let applicationNames = "switcher.applicationNames"
     static let fuzzy = "switcher.fuzzy"
     static let launcher = "switcher.launcher"
     static let searchMode = "switcher.searchMode"
@@ -260,6 +262,9 @@ enum SettingsCatalog {
              String(localized: "Show hidden apps"), ["hidden", "hide"]),
         item(SearchID.showWindowless, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
              String(localized: "Show apps without windows"), ["windowless", "no windows", "background apps"]),
+        item(SearchID.applicationsOnly, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
+             String(localized: "Applications only"),
+             ["applications only", "apps only", "one per app", "per app", "command tab", "classic", "group windows"]),
         item(SearchID.showBadges, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
              String(localized: "Show unread badges"), ["badge", "unread", "dock badge", "count"]),
         item(SearchID.currentSpaceOnly, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
@@ -320,6 +325,9 @@ enum SettingsCatalog {
              String(localized: "Quick-switch delay"), ["delay", "reveal", "hold", "quick switch"]),
         item(SearchID.windowTitle, .appearance, SettingsAnchor.appearance, "Appearance", "Switcher",
              String(localized: "Show window title"), ["window title", "title", "label", "name"]),
+        item(SearchID.applicationNames, .appearance, SettingsAnchor.appearance, "Appearance", "Switcher",
+             String(localized: "Show application names"),
+             ["application names", "app name", "app names", "name", "label", "icon only", "hide name"]),
         item(SearchID.opacity, .appearance, SettingsAnchor.appearance, "Appearance", "Switcher",
              String(localized: "Panel opacity"), ["opacity", "transparency", "alpha", "translucent"]),
         item(SearchID.cornerRadius, .appearance, SettingsAnchor.appearance, "Appearance", "Switcher",
