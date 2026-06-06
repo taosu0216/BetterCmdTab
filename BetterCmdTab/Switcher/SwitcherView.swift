@@ -592,7 +592,10 @@ final class SwitcherView: NSView, TabStripDelegate {
     /// `preferredScreen()` when ordered out, because `NSWindow.screen` is
     /// frame-based and would otherwise return the screen from the previous open.
     private func layoutScreenFrame() -> NSRect {
-        let screen = (window?.isVisible == true ? window?.screen : nil) ?? SwitcherPanel.preferredScreen()
+        let panelTarget = (window as? SwitcherPanel)?.targetScreen
+        let screen = (window?.isVisible == true ? window?.screen : nil)
+            ?? panelTarget
+            ?? SwitcherPanel.preferredScreen()
         return screen.visibleFrame
     }
 
