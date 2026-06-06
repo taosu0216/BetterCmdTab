@@ -189,13 +189,13 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
             appNameLabel.stringValue = row.windowTitle.isEmpty ? row.appName : row.windowTitle
             titleLabel.stringValue = ""
         } else {
-            appNameLabel.stringValue = showAppNames ? row.appName : ""
+            appNameLabel.stringValue = row.appNameSlot(showAppNames: showAppNames)
             if row.isLaunchable {
                 titleLabel.stringValue = String(localized: "Launch")
             } else if row.isRecentlyClosed {
                 titleLabel.stringValue = row.windowTitle.isEmpty ? String(localized: "Reopen") : row.windowTitle
             } else {
-                titleLabel.stringValue = showAppNames ? row.displayTitle : row.windowTitleText
+                titleLabel.stringValue = row.titleSlot(showAppNames: showAppNames)
             }
         }
         imageView.image = isDialog ? SystemSettingsIcon.image : IconCache.icon(for: row)

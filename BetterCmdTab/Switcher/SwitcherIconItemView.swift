@@ -207,7 +207,7 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
 
         let nameText = isDialog
             ? (row.windowTitle.isEmpty ? row.appName : row.windowTitle)
-            : (Preferences.shared.showApplicationNames ? row.appName : "")
+            : row.appNameSlot(showAppNames: Preferences.shared.showApplicationNames)
         nameLabel.stringValue = nameText
         // Drop the name label out of the layout entirely when there's nothing to
         // show (app names hidden) so the tile doesn't reserve an empty top row —

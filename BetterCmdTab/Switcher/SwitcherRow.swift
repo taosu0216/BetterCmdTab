@@ -284,6 +284,20 @@ struct SwitcherRow {
         if window == nil { return "" }
         return windowTitle.isEmpty ? appName : windowTitle
     }
+
+    /// Text for the dedicated app-name slot (List right column, Grid name-under-
+    /// icon). Empty when the user hid application names. The single source of this
+    /// rule so the layouts can't drift; dialog rows handle their own label inline.
+    func appNameSlot(showAppNames: Bool) -> String {
+        showAppNames ? appName : ""
+    }
+
+    /// Text for the primary title slot: the full `displayTitle` when app names are
+    /// shown, or the window-title-only `windowTitleText` when hidden (so hiding
+    /// names never re-surfaces the app name as a title). Shared by List and Previews.
+    func titleSlot(showAppNames: Bool) -> String {
+        showAppNames ? displayTitle : windowTitleText
+    }
 }
 
 /// Cached System Settings app icon, used for system permission/dialog rows.

@@ -204,7 +204,7 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         // sibling tabs). Otherwise the title is gated by "Show window title". When
         // app names are hidden, use windowTitleText so a windowless/launch row
         // never re-surfaces the app name as its title.
-        let previewTitle = Preferences.shared.showApplicationNames ? row.displayTitle : row.windowTitleText
+        let previewTitle = row.titleSlot(showAppNames: Preferences.shared.showApplicationNames)
         nameLabel.stringValue = (Preferences.shared.showWindowTitleLabel || row.browserTab != nil) ? previewTitle : ""
 
         // Dock/notification count badge — shown beside the title, never over the
@@ -338,65 +338,71 @@ final class SwitcherPreviewItemView: NSView, SwitcherItemViewProtocol {
         // are off, previewLabelArea is 0 and the band is omitted entirely.
         let labelAreaH = m.previewLabelArea
         if labelAreaH == 0 {
+            // No label band: thumbnail-only tile. Collapse the icon/title frames
+            // and hide the badge pill outright — with no title to sit beside, a
+            // stale badgeLabel frame would otherwise leak count digits into the
+            // tile corner (badgeLabel is a child of badgePill, so hiding the pill
+            // hides it too).
             iconView.frame = .zero
             nameLabel.frame = .zero
             badgePill.frame = .zero
+            badgePill.isHidden = true
         } else {
-        let iconSize = min(m.previewIconSize, labelAreaH)
+            let iconSize = min(m.previewIconSize, labelAreaH)
 
-        // Count badge sits to the right of the title — a small circle, noticeably
-        // smaller than the app icon (a notification badge, not an icon-sized
-        // disc). The count font shrinks to fit rather than the badge widening into
-        // a pill. Reserve its slot so icon + title + badge stay centered together.
-        let badgeVisible = !badgePill.isHidden
-        let badgeSize = max(9, round(iconSize * 0.62))
-        let badgeGap: CGFloat = badgeVisible ? 4 : 0
-        let badgeSlot = badgeVisible ? badgeGap + badgeSize : 0
+            // Count badge sits to the right of the title — a small circle, noticeably
+            // smaller than the app icon (a notification badge, not an icon-sized
+            // disc). The count font shrinks to fit rather than the badge widening into
+            // a pill. Reserve its slot so icon + title + badge stay centered together.
+            let badgeVisible = !badgePill.isHidden
+            let badgeSize = max(9, round(iconSize * 0.62))
+            let badgeGap: CGFloat = badgeVisible ? 4 : 0
+            let badgeSlot = badgeVisible ? badgeGap + badgeSize : 0
 
-        // Measure the title width with a string-metrics query rather than
-        // `nameLabel.sizeToFit()`, which lays out and resizes the whole
-        // NSTextField just to read a width that's immediately clamped below.
-        // `nameLabel` is a plain single-line truncating field, so the glyph
-        // bounding box is equivalent; `nameLabel.frame` is set explicitly at
-        // the end of this method, so the skipped sizeToFit mutates nothing used.
-        let measureFont = nameLabel.font ?? NSFont.systemFont(ofSize: m.previewNameFontSize, weight: .medium)
-        let textW = (nameLabel.stringValue as NSString).size(withAttributes: [.font: measureFont]).width
-        let nameW = min(ceil(textW), w - iconSize - 6 - badgeSlot)
-        let groupW = iconSize + 4 + nameW + badgeSlot
-        let startX = max(0, round((w - groupW) / 2))
-        let rowMidY = labelAreaH / 2
-        iconView.frame = NSRect(
-            x: startX,
-            y: round(rowMidY - iconSize / 2),
-            width: iconSize,
-            height: iconSize
-        )
-        let nameH = ceil(nameLabel.font?.pointSize ?? m.previewNameFontSize) + 4
-        nameLabel.frame = NSRect(
-            x: iconView.frame.maxX + 4,
-            y: round(rowMidY - nameH / 2),
-            width: max(0, nameW),
-            height: nameH
-        )
-        if badgeVisible {
-            // Fit the count inside the icon-sized circle: start proportional to
-            // the badge, then step the font down until a 1–3 digit count fits.
-            var badgeFont = NSFont.systemFont(ofSize: max(7, round(badgeSize * 0.7)), weight: .semibold)
-            let avail = badgeSize - 3
-            var tw = (badgeLabel.stringValue as NSString).size(withAttributes: [.font: badgeFont]).width
-            while tw > avail && badgeFont.pointSize > 7 {
-                badgeFont = NSFont.systemFont(ofSize: badgeFont.pointSize - 1, weight: .semibold)
-                tw = (badgeLabel.stringValue as NSString).size(withAttributes: [.font: badgeFont]).width
+            // Measure the title width with a string-metrics query rather than
+            // `nameLabel.sizeToFit()`, which lays out and resizes the whole
+            // NSTextField just to read a width that's immediately clamped below.
+            // `nameLabel` is a plain single-line truncating field, so the glyph
+            // bounding box is equivalent; `nameLabel.frame` is set explicitly at
+            // the end of this method, so the skipped sizeToFit mutates nothing used.
+            let measureFont = nameLabel.font ?? NSFont.systemFont(ofSize: m.previewNameFontSize, weight: .medium)
+            let textW = (nameLabel.stringValue as NSString).size(withAttributes: [.font: measureFont]).width
+            let nameW = min(ceil(textW), w - iconSize - 6 - badgeSlot)
+            let groupW = iconSize + 4 + nameW + badgeSlot
+            let startX = max(0, round((w - groupW) / 2))
+            let rowMidY = labelAreaH / 2
+            iconView.frame = NSRect(
+                x: startX,
+                y: round(rowMidY - iconSize / 2),
+                width: iconSize,
+                height: iconSize
+            )
+            let nameH = ceil(nameLabel.font?.pointSize ?? m.previewNameFontSize) + 4
+            nameLabel.frame = NSRect(
+                x: iconView.frame.maxX + 4,
+                y: round(rowMidY - nameH / 2),
+                width: max(0, nameW),
+                height: nameH
+            )
+            if badgeVisible {
+                // Fit the count inside the icon-sized circle: start proportional to
+                // the badge, then step the font down until a 1–3 digit count fits.
+                var badgeFont = NSFont.systemFont(ofSize: max(7, round(badgeSize * 0.7)), weight: .semibold)
+                let avail = badgeSize - 3
+                var tw = (badgeLabel.stringValue as NSString).size(withAttributes: [.font: badgeFont]).width
+                while tw > avail && badgeFont.pointSize > 7 {
+                    badgeFont = NSFont.systemFont(ofSize: badgeFont.pointSize - 1, weight: .semibold)
+                    tw = (badgeLabel.stringValue as NSString).size(withAttributes: [.font: badgeFont]).width
+                }
+                badgeLabel.font = badgeFont
+                let bx = nameLabel.frame.maxX + badgeGap
+                let by = round(rowMidY - badgeSize / 2)
+                badgePill.frame = NSRect(x: bx, y: by, width: badgeSize, height: badgeSize)
+                badgePill.layer?.cornerRadius = badgeSize / 2
+                let lineH = ceil(badgeFont.ascender - badgeFont.descender)
+                badgeLabel.frame = NSRect(x: 0, y: round((badgeSize - lineH) / 2), width: badgeSize, height: lineH)
             }
-            badgeLabel.font = badgeFont
-            let bx = nameLabel.frame.maxX + badgeGap
-            let by = round(rowMidY - badgeSize / 2)
-            badgePill.frame = NSRect(x: bx, y: by, width: badgeSize, height: badgeSize)
-            badgePill.layer?.cornerRadius = badgeSize / 2
-            let lineH = ceil(badgeFont.ascender - badgeFont.descender)
-            badgeLabel.frame = NSRect(x: 0, y: round((badgeSize - lineH) / 2), width: badgeSize, height: lineH)
         }
-        } // end labelAreaH > 0
 
         if !actionBar.isHidden {
             // Top-left corner of the thumbnail, inset slightly. Matches the
