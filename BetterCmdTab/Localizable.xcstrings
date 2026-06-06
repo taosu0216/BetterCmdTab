@@ -1575,6 +1575,62 @@
         }
       }
     },
+    "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwende h / j / k / l wie die Pfeiltasten, während der Umschalter geöffnet ist. h überschreibt die Ausblenden-Belegung und j / k / l überschreiben den Buchstabensprung; im Suchmodus werden diese Buchstaben weiterhin eingegeben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa h / j / k / l como las teclas de flecha mientras el conmutador está abierto. h anula la asignación Ocultar y j / k / l anulan el salto por letra; el modo de búsqueda sigue escribiendo esas letras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez h / j / k / l comme les touches fléchées lorsque le sélecteur est ouvert. h remplace le raccourci Masquer et j / k / l remplacent le saut de lettre ; le mode recherche saisit toujours ces lettres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Używaj h / j / k / l jak klawiszy strzałek, gdy przełącznik jest otwarty. h zastępuje przypisanie Ukryj, a j / k / l zastępują skok literowy; tryb wyszukiwania nadal wpisuje te litery."
+          }
+        }
+      }
+    },
+    "Vim keys (h j k l)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim-Tasten (h j k l)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teclas vim (h j k l)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touches vim (h j k l)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klawisze vim (h j k l)"
+          }
+        }
+      }
+    },
     "Click to copy version info" : {
       "localizations" : {
         "de" : {

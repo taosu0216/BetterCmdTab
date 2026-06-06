@@ -159,6 +159,10 @@ final class HotkeyTap {
     /// here; only consulted while the switcher is idle (an already-open switcher
     /// keeps navigating normally).
     private let suppressTriggerFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// When true, the switcher treats h/j/k/l like the bare arrow keys so a
+    /// vim user can navigate without leaving the home row. Consulted on the tap
+    /// thread, written from main via `setVimNavigationEnabled`. Default off.
+    private let vimNavigationFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
     /// Rebindable in-panel action keys (#5): physical keycode → action. Consulted
     /// in the non-search switching branch before the letter-jump fallback, so a
     /// bound key suppresses letter-jumping (same as the old hardcoded W/M/H/Q).
@@ -445,6 +449,45 @@ final class HotkeyTap {
         suppressTriggerFlag.withLock { $0 = value }
     }
 
+    /// Enable h/j/k/l vim-style navigation while the switcher is open. Pushed
+    /// from main when the preference changes.
+    func setVimNavigationEnabled(_ value: Bool) {
+        vimNavigationFlag.withLock { $0 = value }
+        // The reserved-letter set depends on the vim flag (h/j/k/l are reserved
+        // from hint generation while vim nav is on), so recompute and re-push to
+        // RowLabels on every toggle — not only on binding/layout changes.
+        recomputeReservedLetters()
+    }
+
+    /// Pure mapping from a typed character to the corresponding nav `Event`,
+    /// matching the bare arrow keys (h↔←, l↔→, k↔↑, j↔↓). Returns `nil` for
+    /// any non-vim character so the caller can fall back to the existing
+    /// panel-action / letter-jump branches. Stateless and `nonisolated` so the
+    /// tests can exercise it directly.
+    static func vimNavigationEvent(for character: Character) -> Event? {
+        switch character {
+        case "h": return .spatialLeft
+        case "l": return .spatialRight
+        case "k": return .prevRow
+        case "j": return .nextRow
+        default:  return nil
+        }
+    }
+
+    /// The home-row motion keys vim navigation claims (h/j/k/l). While vim nav is
+    /// on these are reserved from letter-jump hint generation so a shown hint is
+    /// always typeable — otherwise `RowLabels` could hand out a `j`/`k`/`l` hint
+    /// that the tap silently consumes as motion before the letter-jump branch.
+    static let vimNavigationLetters: Set<Character> = ["h", "j", "k", "l"]
+
+    /// Pure: the reserved-letter set `RowLabels` and letter-jump consult, given
+    /// the action-key letters bound in-panel and whether vim navigation is on.
+    /// Kept separate from the layout-dependent keycode translation in
+    /// `recomputeReservedLetters` so the union rule stays unit-testable.
+    static func reservedSet(boundLetters: Set<Character>, vimEnabled: Bool) -> Set<Character> {
+        vimEnabled ? boundLetters.union(vimNavigationLetters) : boundLetters
+    }
+
     /// Publish the open switcher panel's frame in CGEvent global (top-left
     /// origin, y-down) coordinates, or `nil` once it's hidden. Read by the tap
     /// callback to hit-test outside clicks.
@@ -478,7 +521,10 @@ final class HotkeyTap {
             let lower = Character(ch.lowercased())
             if lower.isLetter { collected.insert(lower) }
         }
-        let letters = collected
+        let letters = Self.reservedSet(
+            boundLetters: collected,
+            vimEnabled: vimNavigationFlag.withLock { $0 }
+        )
         reservedLetters.withLock { $0 = letters }
         onReservedLettersChanged?(letters)
     }
@@ -793,6 +839,39 @@ final class HotkeyTap {
                         // Gating on a visible panel makes them pass through with
                         // no panel up, independent of any timer.
                         if isPanelPresented() {
+                            // Vim navigation: h/j/k/l mirror the bare arrows.
+                            // Opt-in because h overlaps the default Hide panel
+                            // binding and j/k/l overlap letter-jump. Checked
+                            // before `panelKeyMap` and letter-jump so an enabled
+                            // vim toggle wins over both. ⌘ is intentionally NOT
+                            // gated out: the panel is held open by the ⌘ hold
+                            // modifier, so vim nav — like the letter-jump below —
+                            // must fire while ⌘ is down; ⌥/⌃/⇧ + h/j/k/l still
+                            // pass through. Search mode is handled in the
+                            // `isSearchingNow()` branch above, so the query
+                            // swallows these letters there. While vim is on,
+                            // h/j/k/l are also unioned into `reservedLetters`, so
+                            // hint generation never assigns them as letter-jump
+                            // hints the tap would silently swallow here.
+                            //
+                            // `translate` is the only thing the vim check needs
+                            // ahead of `panelKeyMap`, so it is computed only when
+                            // the vim flag is on — keeping the default (vim-off)
+                            // hot path free of any added cost: a bound action key
+                            // (⌘W/⌘M/⌘H/⌘Q/⌘F) still short-circuits in
+                            // `panelKeyMap` below without ever paying a translate.
+                            // When vim is on the resolved character is reused by
+                            // the letter-jump branch, so a keystroke is still
+                            // translated at most once.
+                            let vimOn = vimNavigationFlag.withLock { $0 }
+                            let typed = vimOn ? translate(keyCode: UInt16(keyCode)) : nil
+                            if vimOn,
+                               !shiftHeld, !optionHeld, !controlHeld,
+                               let ch = typed,
+                               let vimEvent = Self.vimNavigationEvent(for: Character(ch.lowercased())) {
+                                deliver(vimEvent)
+                                return nil
+                            }
                             if let action = panelKeyMap.withLock({ $0[keyCode] }) {
                                 switch action {
                                 case .close: deliver(.closeWindow)
@@ -803,7 +882,7 @@ final class HotkeyTap {
                                 }
                                 return nil
                             }
-                            if let letter = translate(keyCode: UInt16(keyCode)) {
+                            if let letter = typed ?? translate(keyCode: UInt16(keyCode)) {
                                 // Layout-agnostic drill-in trigger: regardless of
                                 // where `\` lives on the physical keyboard (US,
                                 // Polish, ISO/JIS), any key that types `\` enters

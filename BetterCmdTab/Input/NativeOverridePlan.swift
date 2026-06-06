@@ -106,6 +106,16 @@ private let kcRight: UInt32 = 124
 private let kcDown: UInt32 = 125
 private let kcUp: UInt32 = 126
 
+// Physical-position keycodes for the vim motion keys, used only for the
+// Secure-Event-Input parity chords (h←, l→, k↑, j↓). Correct for the common
+// layouts that keep h/j/k/l in their standard spots; the live tap path is
+// char-based via `HotkeyTap.vimNavigationEvent`, so a heavily-remapped layout
+// only diverges here under Secure Event Input (an accepted edge).
+private let kcVimH: UInt32 = 4
+private let kcVimL: UInt32 = 37
+private let kcVimJ: UInt32 = 38
+private let kcVimK: UInt32 = 40
+
 /// Decide the native-override state.
 ///
 /// - Parameters:
@@ -124,6 +134,10 @@ private let kcUp: UInt32 = 126
 ///     whether the letter keys are letter-jump or search input, and whether the
 ///     arrows step the selection or the tab strip.
 ///   - panelActions: the rebindable in-panel action keys (W/M/H/Q/F).
+///   - vimNavigationEnabled: the opt-in vim h/j/k/l navigation preference. When
+///     on, h/j/k/l are registered as arrow-motion chords ahead of the panel
+///     actions and letter-jump so they win the dedupe — mirroring the tap, where
+///     the vim branch precedes `panelKeyMap` and letter-jump.
 func computeNativeOverridePlan(
     trigger: TriggerSpec,
     secureInputActive: Bool,
@@ -131,7 +145,8 @@ func computeNativeOverridePlan(
     holdModifierDown: Bool,
     searchActive: Bool = false,
     tabDrillActive: Bool = false,
-    panelActions: [PanelActionSpec] = []
+    panelActions: [PanelActionSpec] = [],
+    vimNavigationEnabled: Bool = false
 ) -> NativeOverridePlan {
     // Always-armed: disable the native symbolic hotkey and register the Carbon
     // switching chords regardless of the secure-input state, so our switcher wins
@@ -199,6 +214,18 @@ func computeNativeOverridePlan(
                 }
             } else {
                 chords.append(ChordSpec(keyCode: kcBackslash, modifiers: mod, kind: .enterTabDrill))
+                // Vim navigation parity with the tap: h/j/k/l mirror the arrows
+                // (h←, l→, k↑, j↓). Appended before the panel actions and the
+                // generic letter-jump loop so the first-wins dedupe makes vim win
+                // over both — mirroring the tap, where the vim branch precedes
+                // `panelKeyMap` and letter-jump (so vim `h` beats a Hide binding
+                // on the same key).
+                if vimNavigationEnabled {
+                    chords.append(ChordSpec(keyCode: kcVimH, modifiers: mod, kind: .navLeft))
+                    chords.append(ChordSpec(keyCode: kcVimL, modifiers: mod, kind: .navRight))
+                    chords.append(ChordSpec(keyCode: kcVimK, modifiers: mod, kind: .navUp))
+                    chords.append(ChordSpec(keyCode: kcVimJ, modifiers: mod, kind: .navDown))
+                }
                 // Panel actions before letter-jump so an action key (e.g. W) wins
                 // the dedupe over letter-jump on the same keycode.
                 for action in panelActions {

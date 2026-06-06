@@ -41,6 +41,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
     private let scrollSwitch = NSSwitch()
     private let scrollReverseSwitch = NSSwitch()
     private let clickDismissSwitch = NSSwitch()
+    private let vimNavSwitch = NSSwitch()
 
     // Hover actions
     private let hoverSwitch = NSSwitch()
@@ -194,6 +195,10 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         addRow(to: navigation, title: String(localized: "Click outside to dismiss"),
                subtitle: String(localized: "Click anywhere outside the switcher to close it, leaving the current window focused."),
                accessory: clickDismissSwitch, searchItemID: SearchID.clickDismiss)
+        configureSwitch(vimNavSwitch, action: #selector(toggleVimNavigation(_:)))
+        addRow(to: navigation, title: String(localized: "Vim keys (h j k l)"),
+               subtitle: String(localized: "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters."),
+               accessory: vimNavSwitch, searchItemID: SearchID.vimNavigation)
 
         // Hover actions section — buttons revealed on a row under the pointer.
         let actions = addSection(title: String(localized: "Hover actions"), anchor: SettingsAnchor.actions)
@@ -252,6 +257,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         scrollReverseSwitch.state = prefs.scrollReverseDirection ? .on : .off
         scrollReverseSwitch.isEnabled = prefs.scrollToSwitch
         clickDismissSwitch.state = prefs.clickOutsideToDismiss ? .on : .off
+        vimNavSwitch.state = prefs.vimNavigationEnabled ? .on : .off
         hoverSwitch.state = prefs.hoverActionsEnabled ? .on : .off
         hoverCloseSwitch.state = prefs.hoverShowClose ? .on : .off
         hoverMinimizeSwitch.state = prefs.hoverShowMinimize ? .on : .off
@@ -390,6 +396,10 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
 
     @objc private func toggleClickDismiss(_ sender: NSSwitch) {
         Preferences.shared.clickOutsideToDismiss = (sender.state == .on)
+    }
+
+    @objc private func toggleVimNavigation(_ sender: NSSwitch) {
+        Preferences.shared.vimNavigationEnabled = (sender.state == .on)
     }
 
     @objc private func toggleHover(_ sender: NSSwitch) {

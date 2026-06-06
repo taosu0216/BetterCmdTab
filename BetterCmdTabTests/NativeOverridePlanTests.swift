@@ -175,6 +175,53 @@ struct NativeOverridePlanTests {
         #expect(!Self.has(plan, 1, .letterJump, Self.cmd))
     }
 
+    // MARK: In-panel — vim navigation parity
+
+    @Test func vimEnabled_registersHJKLAsNavAndWinsOverActionsAndLetterJump() {
+        let plan = computeNativeOverridePlan(trigger: Self.native(), secureInputActive: true,
+                                             panelOpen: true, holdModifierDown: true,
+                                             panelActions: Self.panelActions,
+                                             vimNavigationEnabled: true)
+        // h/j/k/l mirror the arrows (h←, l→, k↑, j↓)…
+        #expect(Self.has(plan, 4, .navLeft))
+        #expect(Self.has(plan, 37, .navRight))
+        #expect(Self.has(plan, 40, .navUp))
+        #expect(Self.has(plan, 38, .navDown))
+        // …and win the dedupe outright. 'h' (keycode 4) is the default Hide
+        // action key, but vim is appended first, so the only kind on each of
+        // these keys is the nav motion — never .hide / .letterJump.
+        #expect(Self.kinds(plan, 4) == [.navLeft])
+        #expect(Self.kinds(plan, 37) == [.navRight])
+        #expect(Self.kinds(plan, 40) == [.navUp])
+        #expect(Self.kinds(plan, 38) == [.navDown])
+    }
+
+    @Test func vimDisabled_leavesHideAndLetterJumpIntact() {
+        // Default (vim off): keycode 4 stays the Hide action; j/k/l stay
+        // letter-jump — no nav chords leak onto those keys.
+        let plan = computeNativeOverridePlan(trigger: Self.native(), secureInputActive: true,
+                                             panelOpen: true, holdModifierDown: true,
+                                             panelActions: Self.panelActions,
+                                             vimNavigationEnabled: false)
+        #expect(Self.kinds(plan, 4) == [.hide])
+        #expect(Self.has(plan, 38, .letterJump))
+        #expect(Self.has(plan, 40, .letterJump))
+        #expect(Self.has(plan, 37, .letterJump))
+    }
+
+    @Test func vimEnabled_searchMode_lettersStillTypeIntoQuery() {
+        // Search is handled before vim on the tap, so under SEI h/j/k/l must
+        // type into the query, not navigate — no vim nav chords in search mode.
+        let plan = computeNativeOverridePlan(trigger: Self.native(), secureInputActive: true,
+                                             panelOpen: true, holdModifierDown: true,
+                                             searchActive: true,
+                                             panelActions: Self.panelActions,
+                                             vimNavigationEnabled: true)
+        #expect(Self.kinds(plan, 4) == [.searchChar])
+        #expect(Self.kinds(plan, 38) == [.searchChar])
+        #expect(!plan.carbonChords.contains { Self.navKinds.contains($0.kind) && $0.keyCode == 4 })
+    }
+
     // MARK: In-panel — search mode
 
     @Test func searchMode_lettersBecomeSearchInput_noLetterJumpNoDrill() {
