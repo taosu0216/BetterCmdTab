@@ -82,6 +82,7 @@ enum SearchID {
     static let showBadges = "switcher.showBadges"
     static let currentSpaceOnly = "switcher.currentSpaceOnly"
     static let sortOrder = "switcher.sortOrder"
+    static let displayMonitor = "switcher.displayMonitor"
     static let showRecentlyClosed = "switcher.showRecentlyClosed"
     static let recentlyClosedLimit = "switcher.recentlyClosedLimit"
     static let tabDrill = "switcher.tabDrill"
@@ -305,6 +306,8 @@ enum SettingsCatalog {
              String(localized: "Click outside to dismiss"), ["click", "outside", "dismiss", "cancel", "spotlight"]),
         item(SearchID.vimNavigation, .switcher, SettingsAnchor.navigation, "Switcher", "Navigation",
              String(localized: "Vim keys (h j k l)"), ["vim", "hjkl", "h j k l", "keyboard", "arrows", "navigation"]),
+        item(SearchID.displayMonitor, .switcher, SettingsAnchor.navigation, "Switcher", "Navigation",
+             String(localized: "Show switcher on"), ["display", "monitor", "screen", "multi monitor", "cursor", "main display", "active window"]),
         // Switcher · Actions
         item(SearchID.hoverActions, .switcher, SettingsAnchor.actions, "Switcher", "Hover actions",
              String(localized: "Action buttons on hover"), ["hover", "buttons", "close", "minimize", "maximize", "hide", "quit", "actions"]),
