@@ -40,12 +40,12 @@ and security/irreversible-action notes in normal prose.
 
 Xcode 16+ and the macOS 26 SDK are required (Liquid Glass paths are SDK-gated; deployment
 target is macOS 13.0, which falls back to `NSVisualEffectView` at runtime). Two schemes
-exist: `BetterCmdTab Debug` and `BetterCmdTab Release`.
+exist: `BetterCmdTab Debug` and `BetterCmdTab`.
 
 ```bash
 # Build
 xcodebuild -scheme "BetterCmdTab Debug" -configuration Debug build
-xcodebuild -scheme "BetterCmdTab Release" -configuration Release build   # ships Liquid Glass
+xcodebuild -scheme "BetterCmdTab" -configuration Release build   # ships Liquid Glass
 
 # Test (whole suite)
 xcodebuild -scheme "BetterCmdTab Debug" -destination 'platform=macOS' test

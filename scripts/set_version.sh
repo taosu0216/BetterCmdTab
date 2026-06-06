@@ -23,7 +23,7 @@ set -euo pipefail
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 APP_NAME="BetterCmdTab"
-SCHEME="BetterCmdTab Release"
+SCHEME="BetterCmdTab"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_PATH="${REPO_ROOT}/${APP_NAME}.xcodeproj"

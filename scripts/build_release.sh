@@ -26,7 +26,7 @@ set -euo pipefail
 TEAM_ID="N529W98U62"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Artur Rok (${TEAM_ID})}"
 NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-BetterCmdTabNotarization}"
-SCHEME="BetterCmdTab Release"
+SCHEME="BetterCmdTab"
 BUNDLE_ID="pro.bettercmdtab.BetterCmdTab"
 APP_NAME="BetterCmdTab"
 RELEASE_REPO="rokartur/BetterCmdTab"
