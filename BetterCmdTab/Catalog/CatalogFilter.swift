@@ -20,13 +20,10 @@ enum CatalogFilter {
         let showWindowless: Bool
         let currentSpaceOnly: Bool
         let sortOrder: SwitcherSortOrder
-        /// Collapse the rows to one per application (classic ⌘Tab). Applied last,
-        /// after every other filter/sort/pin step.
-        let applicationsOnly: Bool
 
         /// No filtering and no reordering — lets callers skip work entirely.
         var isIdentity: Bool {
-            hideModes.isEmpty && pinned.isEmpty && showMinimized && showHidden && showWindowless && !currentSpaceOnly && sortOrder == .mru && !applicationsOnly
+            hideModes.isEmpty && pinned.isEmpty && showMinimized && showHidden && showWindowless && !currentSpaceOnly && sortOrder == .mru
         }
     }
 
@@ -48,8 +45,7 @@ enum CatalogFilter {
             showHidden: defaults.object(forKey: Preferences.Keys.showHiddenApps) as? Bool ?? true,
             showWindowless: defaults.object(forKey: Preferences.Keys.showWindowlessApps) as? Bool ?? true,
             currentSpaceOnly: defaults.object(forKey: Preferences.Keys.currentSpaceOnly) as? Bool ?? false,
-            sortOrder: sortRaw.flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru,
-            applicationsOnly: defaults.object(forKey: Preferences.Keys.applicationsOnly) as? Bool ?? false
+            sortOrder: sortRaw.flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru
         )
     }
 
@@ -68,9 +64,6 @@ enum CatalogFilter {
         if cfg.currentSpaceOnly {
             filtered = filterToCurrentSpace(filtered)
         }
-        if cfg.applicationsOnly {
-            filtered = collapseToApplications(filtered)
-        }
         return filtered
     }
 
@@ -80,6 +73,11 @@ enum CatalogFilter {
     /// the row activates the app on its current window. Rows without a pid
     /// (launchables, recently-closed) and placeholders pass through untouched, so
     /// search/launcher results and cache-warm rows are unaffected.
+    ///
+    /// Applied by `SwitcherController` on the app-switch reveal paths only — not
+    /// inside `filteredRows`, so the cache stays a canonical per-window list that
+    /// the windows-only (⌘`) and current-app-windows scope paths can still read in
+    /// full.
     static func collapseToApplications(_ rows: [SwitcherRow]) -> [SwitcherRow] {
         keptApplicationIndices(pids: rows.map(\.pid), placeholders: rows.map(\.isPlaceholder))
             .map { rows[$0] }

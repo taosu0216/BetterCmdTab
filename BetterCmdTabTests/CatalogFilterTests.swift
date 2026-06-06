@@ -12,10 +12,9 @@ struct CatalogFilterTests {
         showHidden: Bool = true,
         showWindowless: Bool = true,
         currentSpaceOnly: Bool = false,
-        sortOrder: SwitcherSortOrder = .mru,
-        applicationsOnly: Bool = false
+        sortOrder: SwitcherSortOrder = .mru
     ) -> CatalogFilter.Config {
-        CatalogFilter.Config(hideModes: hideModes, pinned: pinned, showMinimized: showMinimized, showHidden: showHidden, showWindowless: showWindowless, currentSpaceOnly: currentSpaceOnly, sortOrder: sortOrder, applicationsOnly: applicationsOnly)
+        CatalogFilter.Config(hideModes: hideModes, pinned: pinned, showMinimized: showMinimized, showHidden: showHidden, showWindowless: showWindowless, currentSpaceOnly: currentSpaceOnly, sortOrder: sortOrder)
     }
 
     // MARK: - isIdentity
@@ -33,8 +32,6 @@ struct CatalogFilterTests {
         // .mruWindows is not identity: the full filter path must run so the
         // cross-app window sort can be applied downstream in SwitcherController.
         #expect(!config(sortOrder: .mruWindows).isIdentity)
-        // applications-only forces the collapse step, so it is never identity.
-        #expect(!config(applicationsOnly: true).isIdentity)
     }
 
     // MARK: - applications-only collapse

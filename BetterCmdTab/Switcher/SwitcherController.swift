@@ -1211,6 +1211,22 @@ final class SwitcherController: SwitcherViewDelegate {
         return filtered
     }
 
+    /// Collapse the rows to one per application when "Applications only" is on —
+    /// classic ⌘Tab. Applied only on the app-switch reveal paths, never on the
+    /// window-level ones: the ⌘` windows-only mode and the current-app /
+    /// minimized scopes keep every window so they stay useful even while the
+    /// global toggle is on (that's the whole point of ⌘` — see the user's per-app
+    /// vs per-window split). All other scopes (and plain ⌘Tab) collapse.
+    private func applyApplicationsOnly(_ rows: [SwitcherRow]) -> [SwitcherRow] {
+        guard Preferences.shared.applicationsOnly, !windowsOnlyMode else { return rows }
+        switch activeScope {
+        case .currentAppWindows, .minimizedOnly:
+            return rows
+        case .allAppsAllSpaces, .allAppsCurrentSpace, .none:
+            return CatalogFilter.collapseToApplications(rows)
+        }
+    }
+
     private func prewarmPanel() {
         let placeholder = SwitcherRow(
             app: NSRunningApplication.current,
@@ -1765,9 +1781,9 @@ final class SwitcherController: SwitcherViewDelegate {
         let targetPid = snapshotApps.indices.contains(targetIdx)
             ? snapshotApps[targetIdx].processIdentifier : nil
 
-        let cachedRows = applyWindowMRUSort(
+        let cachedRows = applyApplicationsOnly(applyWindowMRUSort(
             Log.reveal.withIntervalSignpost("catalog.rows") { cache.rows(orderedBy: mru.order) }
-        )
+        ))
         let hadCachedRows = !cachedRows.isEmpty
         if hadCachedRows {
             baseRows = cachedRows
@@ -1991,6 +2007,7 @@ final class SwitcherController: SwitcherViewDelegate {
             next = scopeFiltered(next, scope: scope)
             if next.isEmpty { return }
         }
+        next = applyApplicationsOnly(next)
 
         // `refreshDisplay` preserves the user's current selection by identity so
         // a Tab press landing between reveal-from-cache and this
