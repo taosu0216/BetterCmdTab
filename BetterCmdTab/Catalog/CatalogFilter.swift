@@ -20,10 +20,13 @@ enum CatalogFilter {
         let showWindowless: Bool
         let currentSpaceOnly: Bool
         let sortOrder: SwitcherSortOrder
+        /// Collapse the rows to one per application (classic ⌘Tab). Applied last,
+        /// after every other filter/sort/pin step.
+        let applicationsOnly: Bool
 
         /// No filtering and no reordering — lets callers skip work entirely.
         var isIdentity: Bool {
-            hideModes.isEmpty && pinned.isEmpty && showMinimized && showHidden && showWindowless && !currentSpaceOnly && sortOrder == .mru
+            hideModes.isEmpty && pinned.isEmpty && showMinimized && showHidden && showWindowless && !currentSpaceOnly && sortOrder == .mru && !applicationsOnly
         }
     }
 
@@ -45,7 +48,8 @@ enum CatalogFilter {
             showHidden: defaults.object(forKey: Preferences.Keys.showHiddenApps) as? Bool ?? true,
             showWindowless: defaults.object(forKey: Preferences.Keys.showWindowlessApps) as? Bool ?? true,
             currentSpaceOnly: defaults.object(forKey: Preferences.Keys.currentSpaceOnly) as? Bool ?? false,
-            sortOrder: sortRaw.flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru
+            sortOrder: sortRaw.flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru,
+            applicationsOnly: defaults.object(forKey: Preferences.Keys.applicationsOnly) as? Bool ?? false
         )
     }
 
@@ -64,7 +68,42 @@ enum CatalogFilter {
         if cfg.currentSpaceOnly {
             filtered = filterToCurrentSpace(filtered)
         }
+        if cfg.applicationsOnly {
+            filtered = collapseToApplications(filtered)
+        }
         return filtered
+    }
+
+    /// Collapse a window-level row list to one row per application (classic
+    /// ⌘Tab). Keeps the first row of each process id — which, after the upstream
+    /// `statusPriority` sort, is that app's frontmost/active window — so selecting
+    /// the row activates the app on its current window. Rows without a pid
+    /// (launchables, recently-closed) and placeholders pass through untouched, so
+    /// search/launcher results and cache-warm rows are unaffected.
+    static func collapseToApplications(_ rows: [SwitcherRow]) -> [SwitcherRow] {
+        keptApplicationIndices(pids: rows.map(\.pid), placeholders: rows.map(\.isPlaceholder))
+            .map { rows[$0] }
+    }
+
+    /// Pure index-level core of `collapseToApplications`, split out so it can be
+    /// unit-tested without constructing `NSRunningApplication`s. Returns the
+    /// indices to keep: the first occurrence of each pid, plus every index whose
+    /// pid is nil (launchables / recently-closed) or that is a placeholder.
+    static func keptApplicationIndices(pids: [pid_t?], placeholders: [Bool]) -> [Int] {
+        var seen = Set<pid_t>()
+        var kept: [Int] = []
+        kept.reserveCapacity(pids.count)
+        for i in pids.indices {
+            let isPlaceholder = i < placeholders.count && placeholders[i]
+            if isPlaceholder {
+                kept.append(i)                       // cache-warm rows pass through
+            } else if let pid = pids[i] {
+                if seen.insert(pid).inserted { kept.append(i) }  // first window of the app
+            } else {
+                kept.append(i)                       // no pid (launchable / recently-closed)
+            }
+        }
+        return kept
     }
 
     /// Drop windows that live on a Space other than the one in focus. Rows

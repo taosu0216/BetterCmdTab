@@ -6259,6 +6259,62 @@
         }
       }
     },
+    "Applications only" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Apps"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo aplicaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applications uniquement"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko aplikacje"
+          }
+        }
+      }
+    },
+    "Show one row per app instead of one per window — classic ⌘Tab." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Zeile pro App statt pro Fenster – klassisches ⌘Tab."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra una fila por app en vez de una por ventana: ⌘Tab clásico."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche une ligne par app au lieu d’une par fenêtre — ⌘Tab classique."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj jeden wiersz na aplikację zamiast na okno — klasyczny ⌘Tab."
+          }
+        }
+      }
+    },
     "Show browser tabs as separate entries" : {
       "localizations" : {
         "de" : {

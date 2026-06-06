@@ -12,9 +12,10 @@ struct CatalogFilterTests {
         showHidden: Bool = true,
         showWindowless: Bool = true,
         currentSpaceOnly: Bool = false,
-        sortOrder: SwitcherSortOrder = .mru
+        sortOrder: SwitcherSortOrder = .mru,
+        applicationsOnly: Bool = false
     ) -> CatalogFilter.Config {
-        CatalogFilter.Config(hideModes: hideModes, pinned: pinned, showMinimized: showMinimized, showHidden: showHidden, showWindowless: showWindowless, currentSpaceOnly: currentSpaceOnly, sortOrder: sortOrder)
+        CatalogFilter.Config(hideModes: hideModes, pinned: pinned, showMinimized: showMinimized, showHidden: showHidden, showWindowless: showWindowless, currentSpaceOnly: currentSpaceOnly, sortOrder: sortOrder, applicationsOnly: applicationsOnly)
     }
 
     // MARK: - isIdentity
@@ -32,6 +33,35 @@ struct CatalogFilterTests {
         // .mruWindows is not identity: the full filter path must run so the
         // cross-app window sort can be applied downstream in SwitcherController.
         #expect(!config(sortOrder: .mruWindows).isIdentity)
+        // applications-only forces the collapse step, so it is never identity.
+        #expect(!config(applicationsOnly: true).isIdentity)
+    }
+
+    // MARK: - applications-only collapse
+
+    @Test("applications-only keeps the first window of each app")
+    func applicationsOnlyCollapsesByPid() {
+        // pids 7,7,9,7,9 → keep first 7 (idx 0) and first 9 (idx 2).
+        let kept = CatalogFilter.keptApplicationIndices(
+            pids: [7, 7, 9, 7, 9],
+            placeholders: [false, false, false, false, false])
+        #expect(kept == [0, 2])
+    }
+
+    @Test("applications-only passes through pid-less and placeholder rows")
+    func applicationsOnlyKeepsSpecialRows() {
+        // nil pid (launchable / recently-closed) is always kept; duplicate pids
+        // still collapse around them.
+        let pidless = CatalogFilter.keptApplicationIndices(
+            pids: [nil, 4, 4, nil],
+            placeholders: [false, false, false, false])
+        #expect(pidless == [0, 1, 3])
+
+        // A placeholder row is kept even though its pid duplicates a real row's.
+        let withPlaceholder = CatalogFilter.keptApplicationIndices(
+            pids: [5, 5],
+            placeholders: [true, false])
+        #expect(withPlaceholder == [0, 1])
     }
 
     // MARK: - includes

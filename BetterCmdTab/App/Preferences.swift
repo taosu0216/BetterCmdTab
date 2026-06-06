@@ -396,6 +396,7 @@ final class Preferences: ObservableObject {
         static let showMinimizedWindows = "Switcher.showMinimizedWindows"
         static let showHiddenApps = "Switcher.showHiddenApps"
         static let showWindowlessApps = "Switcher.showWindowlessApps"
+        static let applicationsOnly = "Switcher.applicationsOnly"
         static let fuzzySearchEnabled = "Switcher.fuzzySearchEnabled"
         static let letterHintsEnabled = "Switcher.letterHintsEnabled"
         static let searchDismissMode = "Switcher.searchDismissMode"
@@ -576,6 +577,19 @@ final class Preferences: ObservableObject {
         didSet {
             guard oldValue != showWindowlessApps else { return }
             UserDefaults.standard.set(showWindowlessApps, forKey: Keys.showWindowlessApps)
+        }
+    }
+
+    /// Collapse the switcher to one row per application instead of one row per
+    /// window — classic macOS ⌘Tab. The representative row is the app's frontmost
+    /// window (so selecting it activates the app); native/browser tab expansion is
+    /// suppressed while on. Default `false` (per-window). Read directly off
+    /// `UserDefaults` by `CatalogFilter` on the catalog thread, so the key string
+    /// is the contract.
+    @Published var applicationsOnly: Bool {
+        didSet {
+            guard oldValue != applicationsOnly else { return }
+            UserDefaults.standard.set(applicationsOnly, forKey: Keys.applicationsOnly)
         }
     }
 
@@ -1092,6 +1106,7 @@ final class Preferences: ObservableObject {
         self.showMinimizedWindows = defaults.object(forKey: Keys.showMinimizedWindows) as? Bool ?? true
         self.showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
         self.showWindowlessApps = defaults.object(forKey: Keys.showWindowlessApps) as? Bool ?? true
+        self.applicationsOnly = defaults.object(forKey: Keys.applicationsOnly) as? Bool ?? false
         self.fuzzySearchEnabled = defaults.object(forKey: Keys.fuzzySearchEnabled) as? Bool ?? true
         self.letterHintsEnabled = defaults.object(forKey: Keys.letterHintsEnabled) as? Bool ?? true
 
@@ -1186,6 +1201,7 @@ final class Preferences: ObservableObject {
         showMinimizedWindows = defaults.object(forKey: Keys.showMinimizedWindows) as? Bool ?? true
         showHiddenApps = defaults.object(forKey: Keys.showHiddenApps) as? Bool ?? true
         showWindowlessApps = defaults.object(forKey: Keys.showWindowlessApps) as? Bool ?? true
+        applicationsOnly = defaults.object(forKey: Keys.applicationsOnly) as? Bool ?? false
         fuzzySearchEnabled = defaults.object(forKey: Keys.fuzzySearchEnabled) as? Bool ?? true
         letterHintsEnabled = defaults.object(forKey: Keys.letterHintsEnabled) as? Bool ?? true
         searchDismissMode = defaults.string(forKey: Keys.searchDismissMode).flatMap(SearchDismissMode.init(rawValue:)) ?? .holdModifier

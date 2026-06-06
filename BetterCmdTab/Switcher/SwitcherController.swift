@@ -2095,7 +2095,10 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Already-expanded tab rows pass through untouched, so re-applying is
     /// idempotent. No-op (returns the input) when the pref is off — pure, no AX.
     private func expandBrowserTabs(_ source: [SwitcherRow]) -> [SwitcherRow] {
-        guard Preferences.shared.expandBrowserTabsAsWindows else { return source }
+        // Applications-only mode collapses to one row per app; re-expanding a
+        // browser into per-tab rows would defeat it, so leave the rows untouched.
+        guard Preferences.shared.expandBrowserTabsAsWindows,
+              !Preferences.shared.applicationsOnly else { return source }
         var out: [SwitcherRow] = []
         out.reserveCapacity(source.count)
         for row in source {

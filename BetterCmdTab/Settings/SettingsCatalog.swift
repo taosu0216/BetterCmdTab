@@ -78,6 +78,7 @@ enum SearchID {
     static let showMinimized = "switcher.showMinimized"
     static let showHidden = "switcher.showHidden"
     static let showWindowless = "switcher.showWindowless"
+    static let applicationsOnly = "switcher.applicationsOnly"
     static let showBadges = "switcher.showBadges"
     static let currentSpaceOnly = "switcher.currentSpaceOnly"
     static let sortOrder = "switcher.sortOrder"
@@ -261,6 +262,9 @@ enum SettingsCatalog {
              String(localized: "Show hidden apps"), ["hidden", "hide"]),
         item(SearchID.showWindowless, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
              String(localized: "Show apps without windows"), ["windowless", "no windows", "background apps"]),
+        item(SearchID.applicationsOnly, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
+             String(localized: "Applications only"),
+             ["applications only", "apps only", "one per app", "per app", "command tab", "classic", "group windows"]),
         item(SearchID.showBadges, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
              String(localized: "Show unread badges"), ["badge", "unread", "dock badge", "count"]),
         item(SearchID.currentSpaceOnly, .switcher, SettingsAnchor.contents, "Switcher", "Contents",
