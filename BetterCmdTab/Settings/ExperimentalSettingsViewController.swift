@@ -16,6 +16,8 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
     private let sensitivityValueLabel = NSTextField(labelWithString: "")
     private let instantSpaceSwitch = NSSwitch()
     private let mruWindowsSortSwitch = NSSwitch()
+    private let displayMonitorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let displayModes: [SwitcherDisplayMode] = SwitcherDisplayMode.allCases
 
     override func setupContent() {
         // Experimental section — off by default, clearly flagged as unstable.
@@ -65,6 +67,18 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
         addRow(to: experimental, title: String(localized: "Most recent (windows) sort order"),
                subtitle: String(localized: "Orders the list by when you last focused each window, across all apps."),
                accessory: mruWindowsSortSwitch, searchItemID: SearchID.mruWindowsSort)
+
+        addDivider(to: experimental)
+        displayMonitorPopup.controlSize = .small
+        displayMonitorPopup.translatesAutoresizingMaskIntoConstraints = false
+        displayMonitorPopup.setContentHuggingPriority(.required, for: .horizontal)
+        displayMonitorPopup.removeAllItems()
+        displayMonitorPopup.addItems(withTitles: displayModes.map(\.displayName))
+        displayMonitorPopup.target = self
+        displayMonitorPopup.action = #selector(displayModeChanged)
+        addRow(to: experimental, title: String(localized: "Show switcher on"),
+               subtitle: String(localized: "Choose which monitor the switcher opens on when you have more than one display."),
+               accessory: displayMonitorPopup, searchItemID: SearchID.displayMonitor)
         // Tab drill-in (the `\` peek) + tab expansion graduated to the Switcher
         // tab's "Tabs" section — they are stable, on by default, and belong with
         // the other content options.
@@ -115,6 +129,7 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
         applySensitivity(prefs.swipeSensitivity)
         instantSpaceSwitch.state = prefs.experimentalInstantSpaceSwitch ? .on : .off
         mruWindowsSortSwitch.state = prefs.sortOrder == .mruWindows ? .on : .off
+        if let i = displayModes.firstIndex(of: prefs.switcherDisplayMode) { displayMonitorPopup.selectItem(at: i) }
         setSwipeSubOptionsEnabled(prefs.experimentalSwipeTrigger)
     }
 
@@ -151,6 +166,12 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
 
     @objc private func toggleInstantSpace(_ sender: NSSwitch) {
         Preferences.shared.experimentalInstantSpaceSwitch = (sender.state == .on)
+    }
+
+    @objc private func displayModeChanged() {
+        let idx = displayMonitorPopup.indexOfSelectedItem
+        guard displayModes.indices.contains(idx) else { return }
+        Preferences.shared.switcherDisplayMode = displayModes[idx]
     }
 
     @objc private func toggleMRUWindowsSort(_ sender: NSSwitch) {

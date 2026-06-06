@@ -42,8 +42,6 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
     private let scrollReverseSwitch = NSSwitch()
     private let clickDismissSwitch = NSSwitch()
     private let vimNavSwitch = NSSwitch()
-    private let displayMonitorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let displayModes: [SwitcherDisplayMode] = SwitcherDisplayMode.allCases
 
     // Hover actions
     private let hoverSwitch = NSSwitch()
@@ -202,17 +200,6 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
                subtitle: String(localized: "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters."),
                accessory: vimNavSwitch, searchItemID: SearchID.vimNavigation)
 
-        displayMonitorPopup.controlSize = .small
-        displayMonitorPopup.translatesAutoresizingMaskIntoConstraints = false
-        displayMonitorPopup.setContentHuggingPriority(.required, for: .horizontal)
-        displayMonitorPopup.removeAllItems()
-        displayMonitorPopup.addItems(withTitles: displayModes.map(\.displayName))
-        displayMonitorPopup.target = self
-        displayMonitorPopup.action = #selector(displayModeChanged)
-        addRow(to: navigation, title: String(localized: "Show switcher on"),
-               subtitle: String(localized: "Choose which monitor the switcher opens on when you have more than one display."),
-               accessory: displayMonitorPopup, searchItemID: SearchID.displayMonitor)
-
         // Hover actions section — buttons revealed on a row under the pointer.
         let actions = addSection(title: String(localized: "Hover actions"), anchor: SettingsAnchor.actions)
         configureSwitch(hoverSwitch, action: #selector(toggleHover(_:)))
@@ -266,7 +253,6 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         selectRecentlyClosedLimit(prefs.recentlyClosedLimit)
         recentlyClosedLimitPopup.isEnabled = prefs.showRecentlyClosed
         selectSearchMode(prefs.searchDismissMode)
-        selectDisplayMode(prefs.switcherDisplayMode)
         scrollSwitch.state = prefs.scrollToSwitch ? .on : .off
         scrollReverseSwitch.state = prefs.scrollReverseDirection ? .on : .off
         scrollReverseSwitch.isEnabled = prefs.scrollToSwitch
@@ -284,10 +270,6 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         prefs.$searchDismissMode
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.selectSearchMode($0) }
-            .store(in: &cancellables)
-        prefs.$switcherDisplayMode
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.selectDisplayMode($0) }
             .store(in: &cancellables)
         // Keep the slider in sync if the value changes underneath us (e.g. a
         // settings import calls reloadFromDefaults while this pane is open).
@@ -489,15 +471,5 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
 
     private func selectSearchMode(_ mode: SearchDismissMode) {
         if let i = searchDismissModes.firstIndex(of: mode) { searchModePopup.selectItem(at: i) }
-    }
-
-    @objc private func displayModeChanged() {
-        let idx = displayMonitorPopup.indexOfSelectedItem
-        guard displayModes.indices.contains(idx) else { return }
-        Preferences.shared.switcherDisplayMode = displayModes[idx]
-    }
-
-    private func selectDisplayMode(_ mode: SwitcherDisplayMode) {
-        if let i = displayModes.firstIndex(of: mode) { displayMonitorPopup.selectItem(at: i) }
     }
 }
