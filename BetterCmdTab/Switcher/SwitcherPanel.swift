@@ -7,6 +7,11 @@ import os
 final class SwitcherPanel: NSPanel {
     private var prefCancellable: AnyCancellable?
 
+    /// The screen the owning controller resolved for this open session. Set
+    /// before `present()` so positioning matches the metrics the controller
+    /// computed for the same screen. Cleared on `dismiss()`. Nil → resolve live.
+    var targetScreen: NSScreen?
+
     /// Invoked whenever the panel is shown or relayed out (with its frame in
     /// CGEvent global / top-left-origin coordinates) and when it's hidden (with
     /// `nil`). SwitcherController forwards this to the hotkey tap so an outside
@@ -206,6 +211,7 @@ final class SwitcherPanel: NSPanel {
         // `present()` un-hides it.
         contentView?.isHidden = true
         orderOut(nil)
+        targetScreen = nil
         CATransaction.commit()
         onFrameDidChange?(nil)
     }
@@ -227,12 +233,38 @@ final class SwitcherPanel: NSPanel {
     }
 
     private func activeScreen() -> NSScreen {
-        Self.preferredScreen()
+        targetScreen ?? Self.preferredScreen()
     }
 
-    static func preferredScreen() -> NSScreen {
-        if let mouseScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) {
-            return mouseScreen
+    /// Resolve the screen for `mode`. `mouseCursor`/`mainDisplay` are cheap live
+    /// reads; `activeWindow` is supplied by the controller (`activeWindowScreen`),
+    /// captured before our key panel stole frontmost — it falls back to cursor →
+    /// main when unavailable (no focused window, or capture not yet landed).
+    static func preferredScreen(mode: SwitcherDisplayMode? = nil,
+                                activeWindowScreen: NSScreen? = nil) -> NSScreen {
+        switch mode ?? Preferences.shared.switcherDisplayMode {
+        case .mouseCursor:
+            return mouseScreen() ?? mainDisplayScreen()
+        case .mainDisplay:
+            return mainDisplayScreen()
+        case .activeWindow:
+            return activeWindowScreen ?? mouseScreen() ?? mainDisplayScreen()
+        }
+    }
+
+    /// Screen under the mouse pointer, or nil if the pointer is off all screens.
+    static func mouseScreen() -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+    }
+
+    /// "Main display" from System Settings → Displays — the origin-zero screen.
+    /// `NSScreen.main` is intentionally only a fallback: it means "screen with
+    /// the key window", which is the active screen, not the primary.
+    static func mainDisplayScreen() -> NSScreen {
+        // "Main display" = the origin-zero screen. Found directly (no [CGRect]
+        // allocation); ScreenSelection.mainDisplayIndex stays for unit tests.
+        if let main = NSScreen.screens.first(where: { $0.frame.origin == .zero }) {
+            return main
         }
         return NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
     }

@@ -48,6 +48,18 @@ struct PreferencesEnumTests {
         #expect(SearchDismissMode(rawValue: "nonsense") == nil)
     }
 
+    @Test("SwitcherDisplayMode raw values round-trip and unknown falls back")
+    func switcherDisplayModeRoundTrip() {
+        for mode in SwitcherDisplayMode.allCases {
+            #expect(SwitcherDisplayMode(rawValue: mode.rawValue) == mode)
+        }
+        #expect(SwitcherDisplayMode(rawValue: "garbage") == nil)
+        // Stable raw values (persisted to UserDefaults / exported settings).
+        #expect(SwitcherDisplayMode.mouseCursor.rawValue == "mouseCursor")
+        #expect(SwitcherDisplayMode.activeWindow.rawValue == "activeWindow")
+        #expect(SwitcherDisplayMode.mainDisplay.rawValue == "mainDisplay")
+    }
+
     @Test("HideWindowsMode / IgnoreShortcutsMode round-trip through raw values")
     func exceptionModeRawValues() {
         for mode in HideWindowsMode.allCases {

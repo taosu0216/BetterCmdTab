@@ -118,6 +118,7 @@ enum SearchID {
     static let sensitivity = "experimental.sensitivity"
     static let instantSpace = "experimental.instantSpace"
     static let mruWindowsSort = "experimental.mruWindowsSort"
+    static let displayMonitor = "experimental.displayMonitor"
 }
 
 @MainActor
@@ -351,6 +352,8 @@ enum SettingsCatalog {
              String(localized: "Switch Spaces without animation"), ["spaces", "space", "animation", "instant", "full screen"]),
         item(SearchID.mruWindowsSort, .experimental, SettingsAnchor.experimental, "Experimental", "Experimental",
              String(localized: "Most recent (windows) sort order"), ["sort", "window", "recent", "order", "mru", "windows"]),
+        item(SearchID.displayMonitor, .experimental, SettingsAnchor.experimental, "Experimental", "Experimental",
+             String(localized: "Show switcher on"), ["display", "monitor", "screen", "multi monitor", "cursor", "main display", "active window"]),
     ]
 
     private static func item(
