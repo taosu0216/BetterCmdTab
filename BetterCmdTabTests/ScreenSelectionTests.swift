@@ -61,4 +61,46 @@ struct ScreenSelectionTests {
         let win = CGRect(x: 1000, y: 200, width: 500, height: 300)
         #expect(ScreenSelection.indexOfMaxOverlap(rect: win, screenFrames: [screenA, screenB]) == 1)
     }
+
+    // AX bounds are top-left origin / y-down, anchored at the primary display's
+    // top; Cocoa is bottom-left / y-up. Primary here is 1000pt tall (maxY=1000).
+    @Test("AX→Cocoa flip mirrors y for a window on the primary display")
+    func axFlipOnPrimary() {
+        // 100pt below the primary's top, 300pt tall: Cocoa bottom = 1000-100-300.
+        let cocoa = ScreenSelection.cocoaRect(forAXBounds: CGRect(x: 200, y: 100, width: 400, height: 300), primaryMaxY: 1000)
+        #expect(cocoa == CGRect(x: 200, y: 600, width: 400, height: 300))
+    }
+
+    @Test("AX→Cocoa flip carries x through for a right-hand secondary")
+    func axFlipOnRightSecondary() {
+        // Secondary to the right shares the y-axis; only x differs. Top-aligned:
+        // Cocoa bottom = 1000-0-500.
+        let cocoa = ScreenSelection.cocoaRect(forAXBounds: CGRect(x: 1200, y: 0, width: 400, height: 500), primaryMaxY: 1000)
+        #expect(cocoa == CGRect(x: 1200, y: 500, width: 400, height: 500))
+    }
+
+    @Test("AX→Cocoa flip yields y above the primary for a top secondary")
+    func axFlipOnTopSecondary() {
+        // Display ABOVE primary → negative AX y. Cocoa bottom = 1000-(-400)-300 =
+        // 1100, i.e. past the primary's top edge.
+        let cocoa = ScreenSelection.cocoaRect(forAXBounds: CGRect(x: 0, y: -400, width: 200, height: 300), primaryMaxY: 1000)
+        #expect(cocoa == CGRect(x: 0, y: 1100, width: 200, height: 300))
+    }
+
+    @Test("AX→Cocoa flip yields negative y for a bottom secondary")
+    func axFlipOnBottomSecondary() {
+        // Display BELOW primary → AX y past the primary's height. Cocoa bottom =
+        // 1000-1100-300 = -400.
+        let cocoa = ScreenSelection.cocoaRect(forAXBounds: CGRect(x: 0, y: 1100, width: 200, height: 300), primaryMaxY: 1000)
+        #expect(cocoa == CGRect(x: 0, y: -400, width: 200, height: 300))
+    }
+
+    @Test("flip then max-overlap picks the secondary a reordered window sits on")
+    func axFlipComposedPicksCorrectScreen() {
+        // End-to-end of the pure half: AX (1200,0,400,500) on the right secondary
+        // B flips to Cocoa (1200,500,400,500) and resolves to B (index 1) — the
+        // result is independent of which screen happened to be `screens.first`.
+        let cocoa = ScreenSelection.cocoaRect(forAXBounds: CGRect(x: 1200, y: 0, width: 400, height: 500), primaryMaxY: 1000)
+        #expect(ScreenSelection.indexOfMaxOverlap(rect: cocoa, screenFrames: [screenA, screenB]) == 1)
+    }
 }

@@ -1794,16 +1794,16 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Convert AX (top-left) window bounds to Cocoa and pick the max-overlap
     /// screen. Main-actor only (`NSScreen.screens`). nil if no screen overlaps.
     private func screen(forAXBounds ax: CGRect) -> NSScreen? {
-        guard let primaryMaxY = NSScreen.screens.first?.frame.maxY else { return nil }
-        let cocoa = CGRect(
-            x: ax.minX,
-            y: primaryMaxY - ax.minY - ax.height,
-            width: ax.width,
-            height: ax.height
-        )
-        let frames = NSScreen.screens.map(\.frame)
-        guard let i = ScreenSelection.indexOfMaxOverlap(rect: cocoa, screenFrames: frames) else { return nil }
-        return NSScreen.screens[i]
+        let screens = NSScreen.screens
+        // The AX↔Cocoa flip is anchored to the "Main display". `NSScreen.screens`
+        // order is not guaranteed primary-first, so resolve it by origin (mirrors
+        // `mainDisplayScreen()` / `cgGlobalFrame`) — using `screens.first` here
+        // would flip against the wrong height when displays are reordered.
+        guard let primaryMaxY = (screens.first(where: { $0.frame.origin == .zero })
+            ?? screens.first)?.frame.maxY else { return nil }
+        let cocoa = ScreenSelection.cocoaRect(forAXBounds: ax, primaryMaxY: primaryMaxY)
+        guard let i = ScreenSelection.indexOfMaxOverlap(rect: cocoa, screenFrames: screens.map(\.frame)) else { return nil }
+        return screens[i]
     }
 
     /// Resolve the frontmost app's focused window off the main thread during the
