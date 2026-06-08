@@ -68,15 +68,55 @@ enum IconCache {
         bundleCache.removeAllObjects()
     }
 
-    /// Kept as a no-op for callers that used to eagerly populate the cache.
-    /// Eager prewarm was both an autolayout-thread hazard (Tahoe restyles
-    /// bundle icons via lazily-initialized AppKit views, which writes to the
-    /// layout engine when `NSImage.draw` runs off the main thread) and the
-    /// single biggest contributor to the post-launch RSS spike (~12 MB for a
-    /// 30-app system). On-demand flatten covers every icon a user actually
-    /// sees with negligible first-paint cost (≤1 ms per icon on M-series).
+    /// Number of most-recent app icons to flatten ahead of the first reveal.
+    /// Bounded well under `capacity` so prewarm can never inflate RSS toward
+    /// the cache ceiling (~3 MB at 12 × 262 KB) — only the apps most likely to
+    /// be on the first panel are warmed.
+    private static let prewarmLimit = 12
+    /// Icons flattened per run-loop turn. The flatten must stay on the main
+    /// actor (it touches the AutoLayout engine under Tahoe — see `flattened`),
+    /// so it is chunked across turns to keep any single main-thread slice short.
+    private static let prewarmChunkSize = 3
+
+    /// Flatten the most-recent app icons OFF the switcher show path so the first
+    /// reveal doesn't pay a synchronous `flattened()` per uncached app — the
+    /// dominant cause of the intermittent "switcher shows late" spike on a cold
+    /// cache (first open after launch, after a layout-mode change, or after >32
+    /// apps evicted the cache). Runs on the main actor — the flatten cannot go
+    /// off-main without tripping the AutoLayout-engine assertion that retired
+    /// the original *eager* prewarm — but in small `.common`-mode chunks, so it
+    /// never stalls the run loop and RSS rises gradually instead of spiking ~12
+    /// MB at once. Called from `AppCatalogCache`'s background-refresh main
+    /// completion, where the freshest MRU order is known; already-cached pids
+    /// are skipped, so a warm cache makes this a near-no-op.
     static func prewarm(pids: [pid_t]) {
-        _ = pids
+        var targets: [pid_t] = []
+        targets.reserveCapacity(prewarmLimit)
+        for pid in pids {
+            if targets.count >= prewarmLimit { break }
+            if cache.object(forKey: NSNumber(value: pid)) == nil { targets.append(pid) }
+        }
+        guard !targets.isEmpty else { return }
+        warmChunk(targets, from: 0)
+    }
+
+    /// Flatten one chunk of `pids` on the main actor, then yield the run loop
+    /// and schedule the next chunk in `.common` mode so a chord landing mid-
+    /// prewarm runs its reveal ahead of the remaining flattens.
+    private static func warmChunk(_ pids: [pid_t], from start: Int) {
+        guard start < pids.count else { return }
+        let end = min(start + prewarmChunkSize, pids.count)
+        for i in start..<end {
+            let key = NSNumber(value: pids[i])
+            guard cache.object(forKey: key) == nil,
+                  let source = NSRunningApplication(processIdentifier: pids[i])?.icon else { continue }
+            let flat = flattened(source) ?? source
+            cache.setObject(flat, forKey: key, cost: bytesPerImage)
+        }
+        guard end < pids.count else { return }
+        RunLoop.main.perform(inModes: [.common]) {
+            MainActor.assumeIsolated { warmChunk(pids, from: end) }
+        }
     }
 
     /// Rasterize an app icon into a fixed-size, immutable bitmap.

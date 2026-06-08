@@ -48,8 +48,22 @@ final class HoverActionBar: NSView {
         Spec(action: .forceQuit, symbol: "xmark.octagon.fill", color: .systemRed, tooltip: String(localized: "Force quit app")),
     ]
 
+    /// Whether the six dots have been materialized yet. Deferred so the
+    /// off-by-default hover-actions feature costs the pooled item views nothing:
+    /// building the dots means 6 `TrafficLightDot`s, each a constraint set + an
+    /// SF-Symbol render, on every newly-allocated row. With every dot empty the
+    /// bar's `contentSize` is `.zero` and it is never shown (the host item view
+    /// gates on `hasAnyEnabledButton`), so we only pay this once the user
+    /// actually enables an action — see `buildDotsIfNeeded`.
+    private var dotsBuilt = false
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+    }
+
+    private func buildDotsIfNeeded() {
+        guard !dotsBuilt else { return }
+        dotsBuilt = true
         for spec in Self.specs {
             let dot = TrafficLightDot(action: spec.action, color: spec.color, symbol: spec.symbol, tooltip: spec.tooltip)
             dotsByAction[spec.action] = dot
@@ -128,6 +142,11 @@ final class HoverActionBar: NSView {
 
     /// Show/hide each dot per the user's per-action preferences.
     func applyEnabledButtons() {
+        // Don't materialize the dots for the off-by-default case: an unbuilt bar
+        // has zero `contentSize` and is never shown. Only build once at least one
+        // action is enabled.
+        guard hasAnyEnabledButton else { return }
+        buildDotsIfNeeded()
         let prefs = Preferences.shared
         dotsByAction[.close]?.isHidden = !prefs.hoverShowClose
         dotsByAction[.minimize]?.isHidden = !prefs.hoverShowMinimize
