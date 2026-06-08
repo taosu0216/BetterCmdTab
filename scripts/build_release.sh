@@ -637,13 +637,37 @@ ln -s /Applications "${DMG_STAGE_DIR}/Applications"
 
 rm -f "$DMG_PATH"
 
-hdiutil create \
-  -volname "$DMG_VOLNAME" \
-  -srcfolder "$DMG_STAGE_DIR" \
-  -ov \
-  -format UDZO \
-  -fs HFS+ \
-  "$DMG_PATH" >/dev/null
+# hdiutil can intermittently write a corrupt UDIF image (observed on macOS 26):
+# the .dmg lands on disk but won't mount, and notarytool rejects it up front
+# with "must be a zip archive (.zip), flat installer package (.pkg), or UDIF
+# disk image (.dmg)". `codesign --verify` does NOT catch this (it only checks
+# the signature wrapper, not the disk image payload). Verify the image checksum
+# after each create and retry a few times so a transient bad write doesn't cost
+# a full notarization round-trip — or worse, ship a DMG nobody can open.
+DMG_CREATE_ATTEMPTS=3
+_dmg_attempt=0
+while :; do
+  _dmg_attempt=$((_dmg_attempt + 1))
+  hdiutil create \
+    -volname "$DMG_VOLNAME" \
+    -srcfolder "$DMG_STAGE_DIR" \
+    -ov \
+    -format UDZO \
+    -fs HFS+ \
+    "$DMG_PATH" >/dev/null
+
+  if hdiutil verify "$DMG_PATH" >/dev/null 2>&1; then
+    break
+  fi
+
+  if [[ $_dmg_attempt -ge $DMG_CREATE_ATTEMPTS ]]; then
+    echo "❌ DMG failed integrity verification after ${_dmg_attempt} attempts"
+    echo "   (hdiutil produced a corrupt image). Aborting before notarization."
+    exit 1
+  fi
+  echo "⚠️  DMG verify failed (attempt ${_dmg_attempt}/${DMG_CREATE_ATTEMPTS}); recreating..."
+  rm -f "$DMG_PATH"
+done
 
 DMG_SIZE=$(du -h "$DMG_PATH" | awk '{print $1}')
 echo "✅ Created: ${DMG_PATH} (${DMG_SIZE})"
@@ -654,6 +678,13 @@ step "Step 9: Sign DMG"
 
 codesign --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
 codesign --verify --verbose=2 "$DMG_PATH"
+
+# Re-verify the disk image itself after signing — notarytool's pre-submission
+# check parses the image, so a DMG that won't mount is rejected before upload.
+if ! hdiutil verify "$DMG_PATH" >/dev/null 2>&1; then
+  echo "❌ Signed DMG failed integrity verification (corrupt image). Aborting."
+  exit 1
+fi
 
 echo "✅ DMG signed"
 
