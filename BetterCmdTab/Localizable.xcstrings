@@ -1,370 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Choose which monitor the switcher opens on when you have more than one display." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lege fest, auf welchem Bildschirm sich der Umschalter öffnet, wenn du mehrere Bildschirme verwendest."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elige en qué pantalla se abre el selector cuando tienes más de una pantalla."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choisissez sur quel écran le sélecteur s’ouvre lorsque vous avez plusieurs écrans."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wybierz, na którym ekranie ma się otwierać przełącznik, gdy masz więcej niż jeden ekran."
-          }
-        }
-      }
-    },
-    "Main display" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hauptbildschirm"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pantalla principal"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Écran principal"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ekran główny"
-          }
-        }
-      }
-    },
-    "Monitor with the active window" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirm mit dem aktiven Fenster"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pantalla con la ventana activa"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Écran avec la fenêtre active"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ekran z aktywnym oknem"
-          }
-        }
-      }
-    },
-    "Monitor with the cursor" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirm mit dem Zeiger"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pantalla con el puntero"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Écran avec le pointeur"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ekran ze wskaźnikiem"
-          }
-        }
-      }
-    },
-    "Show switcher on" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Umschalter anzeigen auf"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar el selector en"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher le sélecteur sur"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pokaż przełącznik na"
-          }
-        }
-      }
-    },
-    "Apps kept visible: %lld." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sichtbar gehaltene Apps: %lld."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apps que permanecen visibles: %lld."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apps gardées visibles : %lld."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Widoczne aplikacje: %lld."
-          }
-        }
-      }
-    },
-    "Chosen apps stay visible when you trigger Hide all windows." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgewählte Apps bleiben sichtbar, wenn du „Alle Fenster ausblenden“ auslöst."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las apps elegidas permanecen visibles al activar «Ocultar todas las ventanas»."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les apps choisies restent visibles lorsque vous déclenchez « Masquer toutes les fenêtres »."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wybrane aplikacje pozostają widoczne po uruchomieniu „Ukryj wszystkie okna”."
-          }
-        }
-      }
-    },
-    "Hide all windows hides every app, Finder included. Pick apps to keep visible." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "„Alle Fenster ausblenden“ blendet jede App aus, auch den Finder. Wähle Apps, die sichtbar bleiben."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "«Ocultar todas las ventanas» oculta todas las apps, incluido el Finder. Elige apps que permanezcan visibles."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "« Masquer toutes les fenêtres » masque toutes les apps, Finder compris. Choisissez les apps à garder visibles."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "„Ukryj wszystkie okna” ukrywa każdą aplikację, łącznie z Finderem. Wybierz aplikacje, które mają pozostać widoczne."
-          }
-        }
-      }
-    },
-    "Keep apps visible" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apps sichtbar lassen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mantener apps visibles"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Garder des apps visibles"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pozostaw aplikacje widoczne"
-          }
-        }
-      }
-    },
-    "Bring every hidden app back." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle ausgeblendeten Apps zurückholen."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recupera todas las apps ocultas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rétablir toutes les apps masquées."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Przywróć wszystkie ukryte aplikacje."
-          }
-        }
-      }
-    },
-    "Hide all windows" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle Fenster ausblenden"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ocultar todas las ventanas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Masquer toutes les fenêtres"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ukryj wszystkie okna"
-          }
-        }
-      }
-    },
-    "Hide every app to reveal the desktop. Works system-wide." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle Apps ausblenden, um den Schreibtisch anzuzeigen. Funktioniert systemweit."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oculta todas las apps para mostrar el escritorio. Funciona en todo el sistema."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Masquer toutes les apps pour afficher le bureau. Fonctionne sur tout le système."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ukryj wszystkie aplikacje, aby pokazać pulpit. Działa w całym systemie."
-          }
-        }
-      }
-    },
-    "Show all windows" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alle Fenster einblenden"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar todas las ventanas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher toutes les fenêtres"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pokaż wszystkie okna"
-          }
-        }
-      }
-    },
     " — always shown first." : {
       "localizations" : {
         "de" : {
@@ -955,6 +591,34 @@
         }
       }
     },
+    "Applications only" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Apps"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo aplicaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applications uniquement"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko aplikacje"
+          }
+        }
+      }
+    },
     "Applies to the Grid and Previews layouts." : {
       "localizations" : {
         "de" : {
@@ -1007,6 +671,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aplikacje"
+          }
+        }
+      }
+    },
+    "Apps kept visible: %lld." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sichtbar gehaltene Apps: %lld."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps que permanecen visibles: %lld."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps gardées visibles : %lld."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Widoczne aplikacje: %lld."
           }
         }
       }
@@ -1204,6 +896,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Niebieski"
+          }
+        }
+      }
+    },
+    "Bring every hidden app back." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle ausgeblendeten Apps zurückholen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recupera todas las apps ocultas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rétablir toutes les apps masquées."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przywróć wszystkie ukryte aplikacje."
           }
         }
       }
@@ -1603,6 +1323,34 @@
         }
       }
     },
+    "Choose which monitor the switcher opens on when you have more than one display." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lege fest, auf welchem Bildschirm sich der Umschalter öffnet, wenn du mehrere Bildschirme verwendest."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige en qué pantalla se abre el selector cuando tienes más de una pantalla."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez sur quel écran le sélecteur s’ouvre lorsque vous avez plusieurs écrans."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wybierz, na którym ekranie ma się otwierać przełącznik, gdy masz więcej niż jeden ekran."
+          }
+        }
+      }
+    },
     "Choose…" : {
       "localizations" : {
         "de" : {
@@ -1627,6 +1375,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wybierz…"
+          }
+        }
+      }
+    },
+    "Chosen apps stay visible when you trigger Hide all windows." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgewählte Apps bleiben sichtbar, wenn du „Alle Fenster ausblenden“ auslöst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las apps elegidas permanecen visibles al activar «Ocultar todas las ventanas»."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les apps choisies restent visibles lorsque vous déclenchez « Masquer toutes les fenêtres »."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wybrane aplikacje pozostają widoczne po uruchomieniu „Ukryj wszystkie okna”."
           }
         }
       }
@@ -1711,62 +1487,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kliknij na zewnątrz, aby zamknąć"
-          }
-        }
-      }
-    },
-    "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verwende h / j / k / l wie die Pfeiltasten, während der Umschalter geöffnet ist. h überschreibt die Ausblenden-Belegung und j / k / l überschreiben den Buchstabensprung; im Suchmodus werden diese Buchstaben weiterhin eingegeben."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Usa h / j / k / l como las teclas de flecha mientras el conmutador está abierto. h anula la asignación Ocultar y j / k / l anulan el salto por letra; el modo de búsqueda sigue escribiendo esas letras."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Utilisez h / j / k / l comme les touches fléchées lorsque le sélecteur est ouvert. h remplace le raccourci Masquer et j / k / l remplacent le saut de lettre ; le mode recherche saisit toujours ces lettres."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Używaj h / j / k / l jak klawiszy strzałek, gdy przełącznik jest otwarty. h zastępuje przypisanie Ukryj, a j / k / l zastępują skok literowy; tryb wyszukiwania nadal wpisuje te litery."
-          }
-        }
-      }
-    },
-    "Vim keys (h j k l)" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vim-Tasten (h j k l)"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Teclas vim (h j k l)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Touches vim (h j k l)"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Klawisze vim (h j k l)"
           }
         }
       }
@@ -2947,6 +2667,62 @@
         }
       }
     },
+    "Hide all windows" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Fenster ausblenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocultar todas las ventanas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masquer toutes les fenêtres"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukryj wszystkie okna"
+          }
+        }
+      }
+    },
+    "Hide all windows hides every app, Finder included. Pick apps to keep visible." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Alle Fenster ausblenden“ blendet jede App aus, auch den Finder. Wähle Apps, die sichtbar bleiben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Ocultar todas las ventanas» oculta todas las apps, incluido el Finder. Elige apps que permanezcan visibles."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« Masquer toutes les fenêtres » masque toutes les apps, Finder compris. Choisissez les apps à garder visibles."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Ukryj wszystkie okna” ukrywa każdą aplikację, łącznie z Finderem. Wybierz aplikacje, które mają pozostać widoczne."
+          }
+        }
+      }
+    },
     "Hide app" : {
       "localizations" : {
         "de" : {
@@ -2971,6 +2747,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ukryj aplikację"
+          }
+        }
+      }
+    },
+    "Hide every app to reveal the desktop. Works system-wide." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Apps ausblenden, um den Schreibtisch anzuzeigen. Funktioniert systemweit."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oculta todas las apps para mostrar el escritorio. Funciona en todo el sistema."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masquer toutes les apps pour afficher le bureau. Fonctionne sur tout le système."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukryj wszystkie aplikacje, aby pokazać pulpit. Działa w całym systemie."
           }
         }
       }
@@ -3027,6 +2831,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ukryj ikonę ⌘. Otwórz to okno ponownie z poziomu Spotlight."
+          }
+        }
+      }
+    },
+    "Hide the app name in every layout; identify apps by their icon." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blendet den App-Namen in allen Layouts aus; Apps werden am Symbol erkannt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oculta el nombre de la aplicación en todas las disposiciones; identifica las apps por su icono."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masque le nom de l’application dans toutes les dispositions ; identifiez les apps par leur icône."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukrywa nazwę aplikacji we wszystkich układach; rozpoznawaj aplikacje po ikonie."
           }
         }
       }
@@ -3563,6 +3395,34 @@
         }
       }
     },
+    "Keep apps visible" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps sichtbar lassen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantener apps visibles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder des apps visibles"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozostaw aplikacje widoczne"
+          }
+        }
+      }
+    },
     "Large" : {
       "localizations" : {
         "de" : {
@@ -4040,6 +3900,34 @@
         }
       }
     },
+    "Main display" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hauptbildschirm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pantalla principal"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran principal"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran główny"
+          }
+        }
+      }
+    },
     "Manage apps" : {
       "localizations" : {
         "de" : {
@@ -4233,6 +4121,62 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zminimalizowane okna"
+          }
+        }
+      }
+    },
+    "Monitor with the active window" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirm mit dem aktiven Fenster"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pantalla con la ventana activa"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran avec la fenêtre active"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran z aktywnym oknem"
+          }
+        }
+      }
+    },
+    "Monitor with the cursor" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirm mit dem Zeiger"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pantalla con el puntero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran avec le pointeur"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran ze wskaźnikiem"
           }
         }
       }
@@ -4601,34 +4545,6 @@
         }
       }
     },
-    "Orders the list by when you last focused each window, across all apps." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ordnet die Liste danach, wann du jedes Fenster zuletzt fokussiert hast – über alle Apps hinweg."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ordena la lista según cuándo enfocaste por última vez cada ventana, en todas las apps."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trie la liste selon le moment où vous avez activé chaque fenêtre pour la dernière fois, toutes apps confondues."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Porządkuje listę według tego, kiedy ostatnio aktywowano każde okno, we wszystkich aplikacjach."
-          }
-        }
-      }
-    },
     "Only current Space" : {
       "localizations" : {
         "de" : {
@@ -4715,6 +4631,7 @@
       }
     },
     "Open Settings" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -4850,6 +4767,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pomarańczowy"
+          }
+        }
+      }
+    },
+    "Orders the list by when you last focused each window, across all apps." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordnet die Liste danach, wann du jedes Fenster zuletzt fokussiert hast – über alle Apps hinweg."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordena la lista según cuándo enfocaste por última vez cada ventana, en todas las apps."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trie la liste selon le moment où vous avez activé chaque fenêtre pour la dernière fois, toutes apps confondues."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Porządkuje listę według tego, kiedy ostatnio aktywowano każde okno, we wszystkich aplikacjach."
           }
         }
       }
@@ -6427,6 +6372,62 @@
         }
       }
     },
+    "Show all windows" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Fenster einblenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar todas las ventanas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher toutes les fenêtres"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż wszystkie okna"
+          }
+        }
+      }
+    },
+    "Show application names" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Namen anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar nombres de aplicaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les noms des applications"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj nazwy aplikacji"
+          }
+        }
+      }
+    },
     "Show apps without windows" : {
       "localizations" : {
         "de" : {
@@ -6451,62 +6452,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pokazuj aplikacje bez okien"
-          }
-        }
-      }
-    },
-    "Applications only" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nur Apps"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Solo aplicaciones"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applications uniquement"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tylko aplikacje"
-          }
-        }
-      }
-    },
-    "Show one row per app instead of one per window — classic ⌘Tab." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Zeile pro App statt pro Fenster – klassisches ⌘Tab."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Muestra una fila por app en vez de una por ventana: ⌘Tab clásico."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Affiche une ligne par app au lieu d’une par fenêtre — ⌘Tab classique."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pokazuj jeden wiersz na aplikację zamiast na okno — klasyczny ⌘Tab."
           }
         }
       }
@@ -6651,6 +6596,34 @@
         }
       }
     },
+    "Show one row per app instead of one per window — classic ⌘Tab." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Zeile pro App statt pro Fenster – klassisches ⌘Tab."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra una fila por app en vez de una por ventana: ⌘Tab clásico."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche une ligne par app au lieu d’une par fenêtre — ⌘Tab classique."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj jeden wiersz na aplikację zamiast na okno — klasyczny ⌘Tab."
+          }
+        }
+      }
+    },
     "Show only windows on the Space you're currently viewing." : {
       "localizations" : {
         "de" : {
@@ -6703,6 +6676,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pokazuj ostatnio zamknięte aplikacje"
+          }
+        }
+      }
+    },
+    "Show switcher on" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Umschalter anzeigen auf"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar el selector en"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher le sélecteur sur"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż przełącznik na"
           }
         }
       }
@@ -7886,6 +7887,34 @@
         }
       }
     },
+    "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwende h / j / k / l wie die Pfeiltasten, während der Umschalter geöffnet ist. h überschreibt die Ausblenden-Belegung und j / k / l überschreiben den Buchstabensprung; im Suchmodus werden diese Buchstaben weiterhin eingegeben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa h / j / k / l como las teclas de flecha mientras el conmutador está abierto. h anula la asignación Ocultar y j / k / l anulan el salto por letra; el modo de búsqueda sigue escribiendo esas letras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez h / j / k / l comme les touches fléchées lorsque le sélecteur est ouvert. h remplace le raccourci Masquer et j / k / l remplacent le saut de lettre ; le mode recherche saisit toujours ces lettres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Używaj h / j / k / l jak klawiszy strzałek, gdy przełącznik jest otwarty. h zastępuje przypisanie Ukryj, a j / k / l zastępują skok literowy; tryb wyszukiwania nadal wpisuje te litery."
+          }
+        }
+      }
+    },
     "v%@ — View Update" : {
       "localizations" : {
         "de" : {
@@ -7910,6 +7939,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "v%@ — Wyświetl aktualizację"
+          }
+        }
+      }
+    },
+    "Vim keys (h j k l)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vim-Tasten (h j k l)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teclas vim (h j k l)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touches vim (h j k l)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klawisze vim (h j k l)"
           }
         }
       }
@@ -8190,62 +8247,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Powiększ okno"
-          }
-        }
-      }
-    },
-    "Show application names" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App-Namen anzeigen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar nombres de aplicaciones"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher les noms des applications"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pokazuj nazwy aplikacji"
-          }
-        }
-      }
-    },
-    "Hide the app name in every layout; identify apps by their icon." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Blendet den App-Namen in allen Layouts aus; Apps werden am Symbol erkannt."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oculta el nombre de la aplicación en todas las disposiciones; identifica las apps por su icono."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Masque le nom de l’application dans toutes les dispositions ; identifiez les apps par leur icône."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ukrywa nazwę aplikacji we wszystkich układach; rozpoznawaj aplikacje po ikonie."
           }
         }
       }
