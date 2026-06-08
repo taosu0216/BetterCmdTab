@@ -1,6 +1,6 @@
 import AppKit
+import BetterPermissions
 import BetterSettings
-import Combine
 
 @MainActor
 final class PrivacySettingsViewController: SettingsTabViewController {
@@ -12,8 +12,7 @@ final class PrivacySettingsViewController: SettingsTabViewController {
 
     private let restoreShortcutsButton = NSButton(title: "", target: nil, action: nil)
 
-    private var cancellables = Set<AnyCancellable>()
-    private var axTimer: Timer?
+    private var observationTask: Task<Void, Never>?
 
     override func setupContent() {
         // Screen-sharing section — hide the switcher panel from screen recording
@@ -42,7 +41,7 @@ final class PrivacySettingsViewController: SettingsTabViewController {
         permissionButton.bezelStyle = .rounded
         permissionButton.controlSize = .small
         permissionButton.target = self
-        permissionButton.action = #selector(openSystemSettings)
+        permissionButton.action = #selector(grantAccess)
 
         let permissionAccessory = NSStackView()
         permissionAccessory.orientation = .horizontal
@@ -92,28 +91,43 @@ final class PrivacySettingsViewController: SettingsTabViewController {
         super.viewWillAppear()
 
         hideFromScreenSharingSwitch.state = Preferences.shared.hideFromScreenSharing ? .on : .off
-        refreshAccessibilityStatus()
 
-        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in self?.refreshAccessibilityStatus() }
-            .store(in: &cancellables)
-
-        startAccessibilityPolling()
+        // Reactive accessibility status via BetterPermissions: yields the current value
+        // immediately, then every change (TCC notification / app activation / adaptive
+        // poll), replacing the hand-rolled 1 Hz timer + didBecomeActive observer. The
+        // engine disarms when this task is cancelled on disappear / memory release.
+        observationTask?.cancel() // never leak a second armed observation
+        observationTask = Task { @MainActor [weak self] in
+            for await snapshot in BetterPermissions.changes(.accessibility) {
+                self?.refreshAccessibilityStatus(isUsable: snapshot.status.isUsable)
+            }
+        }
     }
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        stopAccessibilityPolling()
-        cancellables.removeAll()
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
+    // BetterSettings can tear down the active tab (window close / memory eviction)
+    // without a matching viewWillDisappear, which would orphan the observation Task and
+    // leave the BetterPermissions accessibility detector armed for the process lifetime.
+    override func prepareForMemoryRelease() {
+        observationTask?.cancel()
+        observationTask = nil
+        super.prepareForMemoryRelease()
     }
 
     @objc private func toggleHideFromScreenSharing(_ sender: NSSwitch) {
         Preferences.shared.hideFromScreenSharing = (sender.state == .on)
     }
 
-    @objc private func openSystemSettings() {
-        AccessibilityCheck.promptIfNeeded()
-        AccessibilityCheck.openSystemSettings()
+    @objc private func grantAccess() {
+        Task { @MainActor in
+            let outcome = await BetterPermissions.request(.accessibility)
+            if outcome.needsSettings { BetterPermissions.openSettings(for: .accessibility) }
+        }
     }
 
     @objc private func restoreNativeShortcuts() {
@@ -123,41 +137,17 @@ final class PrivacySettingsViewController: SettingsTabViewController {
         NotificationCenter.default.post(name: Notification.Name("BetterCmdTab_restoreNativeShortcuts"), object: nil)
     }
 
-    private func refreshAccessibilityStatus() {
-        if AccessibilityCheck.isTrusted {
+    private func refreshAccessibilityStatus(isUsable: Bool) {
+        if isUsable {
+            // Granted: show the state only — no actionable button.
             permissionIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: String(localized: "Granted"))
             permissionIcon.contentTintColor = .systemGreen
-            permissionButton.title = String(localized: "Open Settings")
+            permissionButton.isHidden = true
         } else {
             permissionIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: String(localized: "Required"))
             permissionIcon.contentTintColor = .systemOrange
+            permissionButton.isHidden = false
             permissionButton.title = String(localized: "Grant Access")
         }
-    }
-
-    private func startAccessibilityPolling() {
-        axTimer?.invalidate()
-        // Only the not-yet-granted state can change without re-activating the app
-        // (the user flips the toggle in System Settings while this pane stays up).
-        // Once trusted, stop the poll — `didBecomeActiveNotification` covers any
-        // later revoke-and-return — so we don't wake the main run loop at 1 Hz for
-        // the entire time the pane is parked open.
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.refreshAndStopIfTrusted() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        axTimer = timer
-    }
-
-    /// Refresh the permission badge and, once the permission is granted, stop the
-    /// poll — leaving the steady state driven only by `didBecomeActive`.
-    private func refreshAndStopIfTrusted() {
-        refreshAccessibilityStatus()
-        if AccessibilityCheck.isTrusted { stopAccessibilityPolling() }
-    }
-
-    private func stopAccessibilityPolling() {
-        axTimer?.invalidate()
-        axTimer = nil
     }
 }
