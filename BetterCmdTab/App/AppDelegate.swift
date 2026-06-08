@@ -162,17 +162,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func notifyAccessibilityRevoked() {
         guard !accessibilityLostShown else { return }
         accessibilityLostShown = true
-        NSApp.activate(ignoringOtherApps: true)
+
         let alert = NSAlert()
         alert.messageText = String(localized: "Accessibility access was turned off")
         alert.informativeText = String(localized: "BetterCmdTab needs Accessibility permission to handle ⌘Tab. Re-enable it in System Settings and the switcher reactivates automatically.")
         alert.addButton(withTitle: String(localized: "Open Accessibility Settings"))
         alert.addButton(withTitle: String(localized: "Later"))
-        let response = alert.runModal()
-        // Re-arm the prompt for the next revoke regardless of choice; if trust is
-        // still off, the next poll won't re-fire (no transition), so clearing the
-        // flag here is safe and only matters after a future re-grant cycle.
-        if response == .alertFirstButtonReturn {
+
+        // Center on screen: a standalone `runModal()` alert is screen-centered by
+        // AppKit (a sheet, by contrast, hangs off a host window's titlebar and needs
+        // a window to exist at all). Safe to run modally here: the tap teardown
+        // already ran in `handleAccessibilityRevoked()` BEFORE this, and the one-shot
+        // `accessibilityLostShown` guard blocks a nested/re-entrant modal — so the
+        // earlier runModal freeze (a nested modal spun under the live revoke cascade)
+        // can't recur. We're `.accessory`, so activate first or the centered alert
+        // could open behind other apps.
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
             AccessibilityCheck.openSystemSettings()
         }
     }

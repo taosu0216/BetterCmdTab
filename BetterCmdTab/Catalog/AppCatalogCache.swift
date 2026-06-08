@@ -188,7 +188,19 @@ final class AppCatalogCache {
                 // pids don't pay a needless re-sweep.
                 self.pidCoverage = self.pidCoverage.filter { fresh.keys.contains($0.key) }
                 self.pendingRefresh = false
-                IconCache.prewarm(pids: Array(fresh.keys))
+                // Warm the most-recently-used app icons off the show path so the
+                // first reveal doesn't flatten them synchronously on main (see
+                // IconCache.prewarm). MRU order first so the apps most likely to
+                // top the panel warm first. Skip while the panel is up: its
+                // visible rows are already cached, so this would only flatten
+                // off-screen apps and compete with the live session.
+                if !self.panelVisible {
+                    let mruOrder = self.mru?.order ?? []
+                    let inMru = Set(mruOrder)
+                    let ordered = mruOrder.filter { fresh.keys.contains($0) }
+                        + fresh.keys.filter { !inMru.contains($0) }
+                    IconCache.prewarm(pids: ordered)
+                }
                 let pending = self.pendingOneShotCompletions
                 self.pendingOneShotCompletions.removeAll()
                 for cb in pending { cb() }

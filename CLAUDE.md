@@ -79,6 +79,29 @@ Signing/notarization needs the `Developer ID Application: Artur Rok (N529W98U62)
 and the `BetterCmdTabNotarization` notarytool keychain profile (see the script header).
 `.github/workflows/sign-release.yml` runs signing in CI.
 
+### Changelog format (the release body)
+
+The changelog *is* the GitHub Release body (no `CHANGELOG.md`). Pass it to
+`build_release.sh --auto-release --notes notes.md`, or write it after the fact with
+`gh release create <tag> -R rokartur/BetterCmdTab --title "BetterCmdTab <version>" --notes-file notes.md`.
+Tags carry a `v` prefix for stable releases (`v26.4.3`) and a bare `MAJOR.MINOR-beta.N` for
+prereleases (`26.0-beta.1`, published with `--prerelease`); `MAJOR` tracks the macOS year.
+
+Match the established BetterCmdTab body shape — this is an end-user app, so bullets are
+**user-facing and outcome-first**, not internal symbol names:
+
+- **First line** is `## Highlights` — a one/two-sentence summary of what the release delivers.
+- Then `### Added`, `### Changed`, `### Fixed`, `### Removed` as they apply (omit empty sections).
+- Each bullet describes the observable behavior change for the user — what now works / changed,
+  not which type was renamed. Exclude `chore`/`refactor`/`build`/`test`/`ci`/`docs`-only changes.
+- End with a compare footer for any release with a predecessor (blank line before it):
+  ```
+  **Full changelog:** https://github.com/rokartur/BetterCmdTab/compare/<prev-tag>...<tag>
+  ```
+
+(Library packages in the `Better*` family — `BetterSettings`, `BetterUpdater`, etc. — use the same
+structure but with technical, API-level bullets; see their `CLAUDE.md`.)
+
 ## Architecture
 
 macOS menu-bar (`.accessory`) app, **AppKit only** — no SwiftUI, no Catalyst, no

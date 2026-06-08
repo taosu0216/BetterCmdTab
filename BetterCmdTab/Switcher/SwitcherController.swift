@@ -427,6 +427,27 @@ final class SwitcherController: SwitcherViewDelegate {
     /// drives the trigger meanwhile).
     private var hotkeyTapRetries = 0
     private static let maxHotkeyTapRetries = 5
+    /// Guards `handleTapDisabledStorm` against re-entry: a burst can post several
+    /// storm callbacks to main before the first one tears the tap down, and
+    /// without this each would schedule its own re-arm — leaking taps/threads.
+    /// Cleared once a tap install succeeds (`reinstallHotkeyTap` / retry).
+    private var tapStormRecovering = false
+    /// The pending `scheduleHotkeyTapRetry` work, held so a revoke (or a
+    /// successful re-arm) can CANCEL an in-flight retry before it fires. Without
+    /// this a stale retry can install a second tap over a freshly re-armed one,
+    /// orphaning the first — a leaked, still-enabled session tap + its thread.
+    private var hotkeyTapRetryWork: DispatchWorkItem?
+    /// Latches `handleAccessibilityRevoked` so the 2 s waiter poll and the tap
+    /// storm callback (which can both observe the same revoke) collapse to ONE
+    /// teardown instead of repeating the WindowServer re-enable IPC + the
+    /// UserDefaults write. Cleared on the next successful re-arm.
+    private var accessibilityRevoked = false
+    /// Pending bounded re-arm of the space-swipe suppressor after a transient
+    /// (AX-trusted) storm; cancellable on revoke/re-grant. See
+    /// `handleSwipeSuppressorStorm`.
+    private var swipeSuppressorReArmWork: DispatchWorkItem?
+    private var swipeSuppressorReArmRetries = 0
+    private static let maxSwipeSuppressorReArms = 3
 
     func start() {
         // The crash-safety guard install + stale symbolic-hotkey heal moved to
@@ -481,6 +502,11 @@ final class SwitcherController: SwitcherViewDelegate {
         // recomputed on every binding/layout change) into RowLabels so hint
         // generation never assigns a letter that's bound to an action.
         hotkey.onReservedLettersChanged = { letters in RowLabels.setReserved(letters) }
+        // The tap reported a re-enable storm (it keeps getting disabled — most
+        // often because Accessibility was revoked under an active session tap).
+        // Recover on main so the spinning tap thread can't keep freezing the
+        // whole system on WindowServer IPC.
+        hotkey.onTapDisabledStorm = { [weak self] in self?.handleTapDisabledStorm() }
         // The Carbon fallback drives the same handler as the tap.
         carbonTrigger.onEvent = { [weak self] event in self?.handle(event) }
         // Scoped-shortcut triggers open the switcher pre-filtered (#3).
@@ -560,13 +586,23 @@ final class SwitcherController: SwitcherViewDelegate {
         swipeTrigger.setOneShot(Preferences.shared.swipeMode != .openSwitcher)
         swipeTrigger.setEnabled(Preferences.shared.experimentalSwipeTrigger)
         // The swipe takes over three-finger horizontal Spaces navigation, so
-        // suppress the system Space-swipe whenever the swipe is enabled.
+        // suppress the system Space-swipe whenever the swipe is enabled. Wire the
+        // storm callback before installing the tap so a disable burst (e.g. on AX
+        // revoke) tears it down instead of freezing the system.
+        spaceSwipeSuppressor.onTapDisabledStorm = { [weak self] in self?.handleSwipeSuppressorStorm() }
         spaceSwipeSuppressor.setEnabled(Preferences.shared.experimentalSwipeTrigger)
         Preferences.shared.$experimentalSwipeTrigger
             .receive(on: DispatchQueue.main)
             .sink { [weak self] enabled in
                 self?.swipeTrigger.setEnabled(enabled)
-                self?.spaceSwipeSuppressor.setEnabled(enabled)
+                // Never install the suppressor's active session tap while AX is
+                // untrusted (it can't be durably enabled and would storm). The
+                // persisted pref is re-applied by reinstallHotkeyTap on re-grant.
+                if enabled && AccessibilityCheck.isTrusted {
+                    self?.spaceSwipeSuppressor.setEnabled(true)
+                } else {
+                    self?.spaceSwipeSuppressor.setEnabled(false)
+                }
             }
             .store(in: &cancellables)
         Preferences.shared.$swipeReverseDirection
@@ -625,7 +661,13 @@ final class SwitcherController: SwitcherViewDelegate {
             .sink { [weak self] _ in self?.updateTriggerSuppression() }
             .store(in: &cancellables)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        // Warm the item-view pool, glass layer and autolayout now (start() runs
+        // only after AX trust, so this panel machinery is the only cold thing
+        // left) rather than 0.5s later — a chord fired inside that first half
+        // second otherwise pays the first-use NSVisualEffect/glass + autolayout
+        // allocation spike synchronously on the show path. Deferred one run-loop
+        // turn so start() returns first; the warm completes long before any chord.
+        DispatchQueue.main.async { [weak self] in
             self?.prewarmPanel()
         }
     }
@@ -1003,9 +1045,25 @@ final class SwitcherController: SwitcherViewDelegate {
     /// and create a fresh one. Trigger config, panel keymaps and the Carbon
     /// fallback already live on the instance, so nothing else needs re-pushing.
     func reinstallHotkeyTap() {
+        // A re-grant ENDS the revoke episode — clear the latch here, NOT on install
+        // success: if this install fails into the retry chain, the latch must
+        // already be open so a fresh revoke during the retry window still tears the
+        // tap down and restores native ⌘Tab (else: dead switcher).
+        accessibilityRevoked = false
+        // A re-grant is an authoritative recovery boundary: cancel any pending
+        // storm/boot retry so it can't fire after this and double-install.
+        hotkeyTapRetryWork?.cancel()
+        hotkeyTapRetryWork = nil
+        swipeSuppressorReArmWork?.cancel()
+        swipeSuppressorReArmWork = nil
+        swipeSuppressorReArmRetries = 0
         hotkey.uninstall()
+        // Re-arm the space-swipe suppressor too (torn down on revoke), gated on
+        // the swipe pref so it only comes back if the experimental swipe is on.
+        spaceSwipeSuppressor.setEnabled(Preferences.shared.experimentalSwipeTrigger)
         if hotkey.install() {
             hotkeyTapRetries = 0
+            tapStormRecovering = false
             Log.switcher.log("CGEventTap re-armed after Accessibility re-grant")
         } else {
             Log.switcher.error("CGEventTap re-arm failed after Accessibility re-grant; retrying")
@@ -1021,12 +1079,97 @@ final class SwitcherController: SwitcherViewDelegate {
     /// switcher works until trust returns; `reassertNativeOverrideAfterRegrant()`
     /// re-disables it once AX is back.
     func handleAccessibilityRevoked() {
+        // Collapse the fan-in: the 2 s waiter poll and the tap storm callback can
+        // both observe the same revoke. Run the teardown once per revoke episode
+        // (`reinstallHotkeyTap` clears this latch on re-grant).
+        guard !accessibilityRevoked else { return }
+        accessibilityRevoked = true
+        // Revoke is an authoritative recovery boundary: kill any in-flight tap
+        // install retry and reset its budget so a stale retry can't resurrect a
+        // tap mid-revoke or double-install after the next re-grant, and so a
+        // future storm (post re-grant) starts with a clean retry budget.
+        hotkeyTapRetryWork?.cancel()
+        hotkeyTapRetryWork = nil
+        hotkeyTapRetries = 0
+        tapStormRecovering = false
+        swipeSuppressorReArmWork?.cancel()
+        swipeSuppressorReArmWork = nil
+        swipeSuppressorReArmRetries = 0
+        // If the switcher panel is on-screen when AX is revoked, the dead tap can
+        // no longer deliver its dismissal keys (Cmd-release / commit / Esc), so the
+        // panel would be stranded with no input path and the re-armed tap would
+        // later start out of phase with the controller. Force the UI to idle first
+        // — `cancel()` needs no AX and no live tap: it pushes the idle flags onto
+        // the (still-present) hotkey instance and dismisses the panel.
+        if phase != .idle { cancel() }
+        // Tear down the now-useless CGEvent tap. An active session tap whose
+        // process is no longer AX-trusted cannot be durably re-enabled — the
+        // WindowServer keeps disabling it — so leaving it installed lets its
+        // re-enable path storm and freeze all system input. `reinstallHotkeyTap()`
+        // re-arms it on re-grant; the Carbon + native symbolic ⌘Tab cover the
+        // trigger meanwhile.
+        hotkey.uninstall()
+        // The space-swipe suppressor is a SECOND active session tap with the same
+        // failure mode — left installed it storms on revoke and freezes the whole
+        // system too. Tear it down here; `reinstallHotkeyTap()` re-arms it (gated
+        // on the swipe pref) once Accessibility returns.
+        spaceSwipeSuppressor.setEnabled(false)
         let toReEnable: [PrivateAPI.SymbolicHotKey] = disabledSymbolicKeys.isEmpty
             ? [.commandTab, .commandShiftTab, .commandKeyAboveTab]
             : disabledSymbolicKeys
         PrivateAPI.setNativeCommandTabEnabled(true, toReEnable)
         disabledSymbolicKeys = []
         persistDisabledSymbolicKeys([])
+    }
+
+    /// The tap signalled a re-enable storm (the WindowServer keeps disabling it).
+    /// Runs on main. Tear the tap down so its thread stops spinning in
+    /// WindowServer IPC, then either leave it down (Accessibility revoked — the
+    /// waiter re-arms on re-grant) or re-arm it on a backoff (a transient
+    /// WindowServer / timeout storm with AX still granted).
+    private func handleTapDisabledStorm() {
+        guard !tapStormRecovering else { return }
+        tapStormRecovering = true
+        if AccessibilityCheck.isTrusted {
+            Log.switcher.error("CGEventTap storm with Accessibility trusted — re-arming on backoff")
+            hotkey.uninstall()
+            scheduleHotkeyTapRetry()
+        } else {
+            Log.switcher.error("CGEventTap storm — Accessibility revoked; tap torn down, native ⌘Tab restored")
+            // Restores the native symbolic ⌘Tab and tears the tap down (it calls
+            // `hotkey.uninstall()`), so the user keeps a working switcher and the
+            // storm cannot resume. The waiter re-arms our tap on re-grant.
+            handleAccessibilityRevoked()
+        }
+    }
+
+    /// The space-swipe suppressor tap signalled a re-enable storm. Runs on main.
+    /// The tap is non-essential, so just tear it down (its thread stops spinning
+    /// in WindowServer IPC). It re-arms on Accessibility re-grant via
+    /// `reinstallHotkeyTap()`, gated on the swipe pref. Idempotent — safe to call
+    /// from several storm callbacks queued before the first teardown lands.
+    private func handleSwipeSuppressorStorm() {
+        Log.switcher.error("Space-swipe suppressor tap storm — tearing it down")
+        spaceSwipeSuppressor.setEnabled(false)
+        // Asymmetry fix: if AX is still trusted this is a TRANSIENT storm, not a
+        // revoke (the suppressor's own !isTrusted bail handles revoke). Re-arm on
+        // a bounded backoff so a transient storm doesn't silently kill swipe
+        // suppression for the rest of the run. Capped to avoid teardown/re-arm
+        // thrash on a persistent storm; the cap resets on the next AX re-grant.
+        // Gated on the swipe pref so it never resurrects a disabled feature.
+        guard AccessibilityCheck.isTrusted,
+              Preferences.shared.experimentalSwipeTrigger,
+              swipeSuppressorReArmRetries < Self.maxSwipeSuppressorReArms else { return }
+        swipeSuppressorReArmRetries += 1
+        swipeSuppressorReArmWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.swipeSuppressorReArmWork = nil
+            guard AccessibilityCheck.isTrusted, Preferences.shared.experimentalSwipeTrigger else { return }
+            self.spaceSwipeSuppressor.setEnabled(true)
+        }
+        swipeSuppressorReArmWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     /// Accessibility was re-granted at runtime. After `reinstallHotkeyTap()`
@@ -1037,27 +1180,57 @@ final class SwitcherController: SwitcherViewDelegate {
         syncNativeHotkeyOverride()
     }
 
-    /// Retry a failed `hotkey.install()` on a short backoff. Only reached after an
-    /// install that left the tap uncreated, so a plain `install()` (not a
-    /// reinstall) is safe — there is no live tap to leak. Gives up after
-    /// `maxHotkeyTapRetries`; the Carbon fallback keeps the trigger working
-    /// regardless, and a later Accessibility re-grant re-arms via the waiter.
+    /// Retry a failed `hotkey.install()` on a short backoff. The work is held in
+    /// `hotkeyTapRetryWork` so a revoke / re-grant can cancel it, the closure
+    /// bails if AX dropped meanwhile, and `HotkeyTap.install()` is itself
+    /// idempotent — three independent guards against a stale retry installing a
+    /// second tap over a live one. Gives up after `maxHotkeyTapRetries` (resetting
+    /// the recovery state so a future storm can retry); the Carbon fallback keeps
+    /// the trigger working regardless, and a later Accessibility re-grant re-arms
+    /// via the waiter.
     private func scheduleHotkeyTapRetry() {
         guard hotkeyTapRetries < Self.maxHotkeyTapRetries else {
             Log.switcher.error("CGEventTap still failing after \(Self.maxHotkeyTapRetries) retries; relying on the Carbon fallback")
+            // Recovery is no longer in flight: clear the storm guard and reset the
+            // budget so a FUTURE storm can re-attempt recovery. Without this,
+            // `tapStormRecovering` sticks true forever and every later storm is a
+            // permanent no-op while AX stays trusted (the waiter only re-arms on an
+            // untrusted→trusted transition, which never fires if AX never dropped).
+            tapStormRecovering = false
+            hotkeyTapRetries = 0
+            hotkeyTapRetryWork = nil
             return
         }
         hotkeyTapRetries += 1
         let attempt = hotkeyTapRetries
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            self.hotkeyTapRetryWork = nil
+            // AX revoked while this retry was pending? Stop the chain — the waiter's
+            // re-grant path (`reinstallHotkeyTap`) is the correct re-arm trigger and
+            // resets the budget itself. Prevents installing an active tap while
+            // untrusted (which would only storm).
+            guard AccessibilityCheck.isTrusted else {
+                self.hotkeyTapRetries = 0
+                self.tapStormRecovering = false
+                return
+            }
             if self.hotkey.install() {
                 self.hotkeyTapRetries = 0
+                self.tapStormRecovering = false
+                self.accessibilityRevoked = false
+                // A shared-WindowServer storm takes BOTH session taps down
+                // together, but only the hotkey tap has a retry — re-arm the
+                // suppressor alongside on success, gated on the swipe pref.
+                self.swipeSuppressorReArmRetries = 0
+                self.spaceSwipeSuppressor.setEnabled(Preferences.shared.experimentalSwipeTrigger)
                 Log.switcher.log("CGEventTap installed on retry \(attempt)")
             } else {
                 self.scheduleHotkeyTapRetry()
             }
         }
+        hotkeyTapRetryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     func shutdown() {
@@ -1749,9 +1922,12 @@ final class SwitcherController: SwitcherViewDelegate {
         prewarmBrowserTabs()
         revealTimer?.invalidate()
         let timer = Timer(timeInterval: revealDelay, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reveal()
-            }
+            // The timer already fires on the main run loop (added below), so run
+            // reveal() inline instead of bouncing through `Task { @MainActor }`:
+            // that hop cost an extra executor turn and, under a main-thread
+            // notification storm, queued reveal() behind every other pending
+            // MainActor task at the exact moment the panel should appear.
+            MainActor.assumeIsolated { self?.reveal() }
         }
         RunLoop.main.add(timer, forMode: .common)
         revealTimer = timer

@@ -66,6 +66,12 @@ final class HotkeyTap {
     /// never fires, then hands the captured event to the recorder.
     var onRecordingKeyDown: (CGEvent) -> Void = { _ in }
 
+    /// Fired on the MAIN thread when the tap is being disabled repeatedly in a
+    /// tight burst (the re-enable storm — see `handle`). The owner tears the tap
+    /// down and re-arms it on a backoff (or leaves it down if Accessibility was
+    /// revoked). Set by `SwitcherController`.
+    var onTapDisabledStorm: () -> Void = {}
+
     /// Wraps a CGEvent so it can cross the tap-thread → main hop. CGEvent is a
     /// thread-safe CF reference; the box just silences Sendable checking.
     private final class EventBox: @unchecked Sendable {
@@ -113,6 +119,29 @@ final class HotkeyTap {
     }
     private let ports = OSAllocatedUnfairLock<TapPorts>(initialState: TapPorts())
     private var layoutObserver: NSObjectProtocol?
+
+    /// Storm guard for the tap-disabled re-enable path. An active session tap
+    /// whose owning process loses Accessibility trust (or that keeps timing out)
+    /// is disabled by the WindowServer; re-enabling it then fails and it is
+    /// disabled again, delivering another `tapDisabled` callback. Re-enabling
+    /// unconditionally in that callback spins the tap thread in synchronous
+    /// WindowServer IPC — and because the WindowServer blocks ALL input on this
+    /// active tap until the callback returns, the whole system freezes. So cap
+    /// rapid consecutive re-enables (see `handle`): re-enable the first few (a
+    /// genuine one-off `tapDisabledByTimeout` recovers immediately), but once a
+    /// burst is detected stop re-enabling on the tap thread and hand off to
+    /// `onTapDisabledStorm`. Guarded by the same unfair-lock discipline as the
+    /// rest of the cross-thread tap state.
+    private struct DisableGate {
+        var count = 0
+        var lastNs: UInt64 = 0
+    }
+    private let disableGate = OSAllocatedUnfairLock<DisableGate>(initialState: DisableGate())
+    /// Max rapid consecutive re-enables before bailing to main-thread recovery.
+    private static let maxRapidReenables = 3
+    /// Consecutive disables closer together than this count as one burst; a gap
+    /// longer than this resets the counter so isolated timeouts always recover.
+    private static let disableBurstWindowNs: UInt64 = 1_000_000_000 // 1s
 
     private let switchingFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
     /// True only while the switcher panel is actually on screen (`phase ==
@@ -247,6 +276,14 @@ final class HotkeyTap {
     var onReservedLettersChanged: ((Set<Character>) -> Void)?
 
     func install() -> Bool {
+        // Idempotent: if a tap is already live, do NOT overwrite the port/thread
+        // handles — that would orphan the existing tap and its run-loop thread (a
+        // leaked, still-ENABLED session tap = the exact freeze/double-delivery
+        // class this type exists to prevent). A stale `scheduleHotkeyTapRetry`
+        // firing after a re-arm hits this and no-ops. Re-arm paths call
+        // `uninstall()` first, so they still get a fresh tap. Return `true`
+        // because a live tap is the success postcondition the callers want.
+        if ports.withLock({ $0.tap }) != nil { return true }
         // Always-on tap: only the events we must catch from idle — the trigger
         // chord (keyDown) and modifier tracking (flagsChanged). Keeping this
         // mask minimal means a closed switcher's only system-wide event traffic
@@ -265,6 +302,24 @@ final class HotkeyTap {
             (1 << CGEventType.rightMouseDown.rawValue) |
             (1 << CGEventType.otherMouseDown.rawValue)
 
+        // Fresh tap → fresh storm counter, so a re-arm after a prior storm (or
+        // after an Accessibility re-grant) starts with a clean re-enable budget.
+        disableGate.withLock { $0 = DisableGate() }
+
+        // Under a debugger an ACTIVE (`.defaultTap`) session tap can HARD-freeze
+        // the WindowServer (see `DebuggerCheck`): LLDB can suspend this callback
+        // thread (a breakpoint, a caught signal, or the instant Accessibility is
+        // revoked) and the WindowServer then blocks ALL input forever, with no way
+        // to reach Xcode's Stop button — a hard reboot. While debugging, fall back
+        // to a non-blocking `.listenOnly` tap: it can't swallow events, but it
+        // can't freeze the machine either. Native ⌘Tab is still suppressed via the
+        // symbolic-hotkey API and panel nav still works. Production builds (no
+        // debugger) keep the active tap and full suppression.
+        let tapOptions: CGEventTapOptions = DebuggerCheck.isAttached ? .listenOnly : .defaultTap
+        if DebuggerCheck.isAttached {
+            Log.hotkey.warning("Debugger attached — CGEvent taps created .listenOnly (no event suppression) to avoid a WindowServer freeze")
+        }
+
         let opaqueSelf = Unmanaged.passUnretained(self).toOpaque()
 
         let callback: CGEventTapCallBack = { _, type, cgEvent, refcon in
@@ -276,7 +331,7 @@ final class HotkeyTap {
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: tapOptions,
             eventsOfInterest: keyMask,
             callback: callback,
             userInfo: opaqueSelf
@@ -301,7 +356,7 @@ final class HotkeyTap {
         if let auxPort = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: tapOptions,
             eventsOfInterest: pointerMask,
             callback: callback,
             userInfo: opaqueSelf
@@ -602,14 +657,77 @@ final class HotkeyTap {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            // Copy the ports into locals under the lock, release, then re-enable
-            // on the locals — the strong `let`s keep them alive across the call
-            // even if `uninstall()` nils the shared state concurrently.
-            let (tap, auxTap) = ports.withLockUnchecked { ($0.tap, $0.auxTap) }
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            // Re-arm the pointer tap only if it should currently be live (i.e.
-            // the switcher is open); otherwise it stays disabled as intended.
-            if let auxTap, isSwitchingNow() { CGEvent.tapEnable(tap: auxTap, enable: true) }
+            // Accessibility revoked is the common disable cause, and it's the one
+            // that freezes the whole machine: an active session tap whose process
+            // is no longer AX-trusted can NEVER be durably re-enabled, so every
+            // re-enable attempt is a synchronous WindowServer IPC that stalls
+            // while the WindowServer refuses — and because the WindowServer blocks
+            // all system input on this active tap, those stalls are a system-wide
+            // freeze. Don't even try once: a cheap local trust check (no XPC) lets
+            // us bail on the first disable and hand off to main, which tears the
+            // tap down. The storm gate below is the backstop for the AX-trusted
+            // timeout-loop case (main thread wedged) and for the brief race where
+            // the trust cache hasn't flipped yet.
+            if !AccessibilityCheck.isTrusted {
+                Log.hotkey.error("CGEventTap disabled and Accessibility not trusted — tearing down (no re-enable)")
+                let handler = onTapDisabledStorm
+                DispatchQueue.main.async { handler() }
+                return Unmanaged.passUnretained(event)
+            }
+            // Storm guard: count rapid consecutive disables. Re-enabling an active
+            // session tap that the WindowServer keeps disabling (a sustained
+            // timeout with AX still granted) pins THIS tap thread in synchronous
+            // WindowServer IPC — and the WindowServer blocks all system input on
+            // it, freezing the whole machine. Once a burst is seen, stop the tight
+            // re-enable loop and hand off to a main-thread recovery that tears the
+            // tap down / re-arms on a backoff.
+            let now = DispatchTime.now().uptimeNanoseconds
+            let storming = disableGate.withLock { gate -> Bool in
+                if now &- gate.lastNs > Self.disableBurstWindowNs { gate.count = 0 }
+                gate.lastNs = now
+                gate.count += 1
+                return gate.count > Self.maxRapidReenables
+            }
+            if storming {
+                // Return WITHOUT re-enabling so the tap thread stops spinning in
+                // WindowServer IPC; recovery happens on main (uninstall + re-arm,
+                // or stay down if AX was revoked).
+                Log.hotkey.error("CGEventTap disabled repeatedly (storm) — bailing to main-thread recovery")
+                let handler = onTapDisabledStorm
+                DispatchQueue.main.async { handler() }
+                return Unmanaged.passUnretained(event)
+            }
+            // Final trust re-check immediately before the re-enable closes the
+            // TOCTOU window: AX can be revoked in the tiny gap since the check
+            // above (the storm-gate lock op), and `tapEnable` on a just-untrusted
+            // active tap is itself a WindowServer-stalling IPC. This keeps even a
+            // single stray re-enable off an untrusted tap. Cold path (disables are
+            // rare), so the extra local trust read costs nothing measurable.
+            guard AccessibilityCheck.isTrusted else {
+                let handler = onTapDisabledStorm
+                DispatchQueue.main.async { handler() }
+                return Unmanaged.passUnretained(event)
+            }
+            // Re-enable INSIDE the ports lock so a concurrent `uninstall()` (which
+            // nils the ports under the same lock, then disables on its snapshot)
+            // can't race us into re-enabling a tap it just tore down: either we win
+            // the lock and enable before uninstall nils it — and uninstall's own
+            // tapEnable(false) on the snapshot then wins the end state — or
+            // uninstall wins, we observe `tap == nil`, and bail. `isSwitchingNow()`
+            // is read BEFORE taking the lock to avoid nesting the two locks.
+            // Holding the ports lock across `tapEnable` is fine on this cold path:
+            // the WindowServer IPC never re-enters this lock, and we only reach
+            // here when AX is trusted (so the call returns promptly).
+            let switchingNow = isSwitchingNow()
+            ports.withLockUnchecked { state in
+                guard let tap = state.tap else { return }
+                CGEvent.tapEnable(tap: tap, enable: true)
+                // Re-arm the pointer tap only if it should currently be live (i.e.
+                // the switcher is open); otherwise it stays disabled as intended.
+                if let auxTap = state.auxTap, switchingNow {
+                    CGEvent.tapEnable(tap: auxTap, enable: true)
+                }
+            }
             Log.hotkey.warning("CGEventTap disabled, re-enabling")
             return Unmanaged.passUnretained(event)
         }

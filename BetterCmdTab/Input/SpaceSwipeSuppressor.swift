@@ -33,6 +33,31 @@ final class SpaceSwipeSuppressor {
     }
     private let ports = OSAllocatedUnfairLock<TapPorts>(initialState: TapPorts())
 
+    /// Fired on the MAIN thread when the tap is being disabled repeatedly in a
+    /// tight burst (Accessibility revoked, or a sustained timeout). The owner
+    /// (`SwitcherController`) tears this non-essential tap down; it re-arms on
+    /// AX re-grant, gated on the swipe pref. Set before `setEnabled(true)`.
+    var onTapDisabledStorm: () -> Void = {}
+
+    /// Storm guard for the tap-disabled re-enable path — identical rationale to
+    /// `HotkeyTap.DisableGate`. An active session tap whose process loses
+    /// Accessibility trust is disabled by the WindowServer; re-enabling it then
+    /// fails and it's disabled again. Re-enabling unconditionally spins this tap
+    /// thread in synchronous WindowServer IPC, and because the WindowServer
+    /// blocks ALL input on an active tap until the callback returns, the whole
+    /// system freezes. So cap rapid consecutive re-enables and bail to the owner
+    /// once a burst is seen (see `handle`).
+    private struct DisableGate {
+        var count = 0
+        var lastNs: UInt64 = 0
+    }
+    private let disableGate = OSAllocatedUnfairLock<DisableGate>(initialState: DisableGate())
+    /// Max rapid consecutive re-enables before bailing to main-thread recovery.
+    private static let maxRapidReenables = 3
+    /// Consecutive disables closer together than this count as one burst; a gap
+    /// longer than this resets the counter so isolated timeouts always recover.
+    private static let disableBurstWindowNs: UInt64 = 1_000_000_000 // 1s
+
     /// Undocumented CGS gesture event types and fields (from the IOHID/CGS
     /// private headers; same constants InstantSpaceSwitcher uses).
     private enum CGS {
@@ -50,9 +75,24 @@ final class SpaceSwipeSuppressor {
 
     private func install() {
         guard ports.withLock({ $0.tap }) == nil else { return }
+        // Never create an active session tap while AX is untrusted — it can't be
+        // durably enabled and would immediately storm. The owner re-arms via
+        // SwitcherController.reinstallHotkeyTap on AX re-grant per the persisted
+        // swipe pref, so the desired state is not lost.
+        guard AccessibilityCheck.isTrusted else { return }
 
         let mask: CGEventMask =
             (1 << UInt64(CGS.eventGesture)) | (1 << UInt64(CGS.eventDockControl))
+
+        // Fresh tap → fresh storm counter, so a re-arm after a prior storm (or
+        // after an Accessibility re-grant) starts with a clean re-enable budget.
+        disableGate.withLock { $0 = DisableGate() }
+
+        // Under a debugger, use a non-blocking listen-only tap so a suspended
+        // callback thread can't hard-freeze the WindowServer (see DebuggerCheck /
+        // HotkeyTap). Suppression is a no-op while debugging — acceptable.
+        let tapOptions: CGEventTapOptions = DebuggerCheck.isAttached ? .listenOnly : .defaultTap
+
         let opaqueSelf = Unmanaged.passUnretained(self).toOpaque()
 
         let callback: CGEventTapCallBack = { _, type, event, refcon in
@@ -64,7 +104,7 @@ final class SpaceSwipeSuppressor {
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: tapOptions,
             eventsOfInterest: mask,
             callback: callback,
             userInfo: opaqueSelf
@@ -103,10 +143,51 @@ final class SpaceSwipeSuppressor {
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Re-enable if the watchdog or a user-input burst disabled the tap.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap = ports.withLock({ $0.tap }) {
-                CGEvent.tapEnable(tap: tap, enable: true)
+            // Accessibility revoked → an active session tap can't be durably
+            // re-enabled; re-enabling spins this thread in synchronous
+            // WindowServer IPC, and the WindowServer blocks ALL input on the tap
+            // until the callback returns, so the whole system freezes. Bail on
+            // the first disable (cheap local trust check, no XPC) and let the
+            // owner tear the tap down — never attempt a single re-enable.
+            if !AccessibilityCheck.isTrusted {
+                Log.priv.error("Space-swipe tap disabled and Accessibility not trusted — tearing down (no re-enable)")
+                let handler = onTapDisabledStorm
+                DispatchQueue.main.async { handler() }
+                return Unmanaged.passUnretained(event)
+            }
+            // Backstop for the AX-trusted timeout-loop case (and the brief race
+            // where the trust cache hasn't flipped yet): re-enable the first few
+            // disables, but once a burst is detected stop spinning and hand off.
+            let now = DispatchTime.now().uptimeNanoseconds
+            let storming = disableGate.withLock { gate -> Bool in
+                if now &- gate.lastNs > Self.disableBurstWindowNs { gate.count = 0 }
+                gate.lastNs = now
+                gate.count += 1
+                return gate.count > Self.maxRapidReenables
+            }
+            if storming {
+                Log.priv.error("Space-swipe tap disabled repeatedly (storm) — bailing to main-thread recovery")
+                let handler = onTapDisabledStorm
+                DispatchQueue.main.async { handler() }
+                return Unmanaged.passUnretained(event)
+            }
+            // Final trust re-check immediately before the re-enable closes the
+            // TOCTOU window since the check above (see HotkeyTap for the rationale):
+            // calling tapEnable on a just-untrusted active tap is itself a
+            // WindowServer-stalling IPC.
+            guard AccessibilityCheck.isTrusted else {
+                let handler = onTapDisabledStorm
+                DispatchQueue.main.async { handler() }
+                return Unmanaged.passUnretained(event)
+            }
+            // Re-enable inside the lock so a concurrent uninstall() (which nils the
+            // ports under the same lock) can't race us into re-enabling a tap it
+            // just tore down — see HotkeyTap.handle for the full rationale.
+            ports.withLock { state in
+                if let tap = state.tap {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
             }
             return Unmanaged.passUnretained(event)
         }

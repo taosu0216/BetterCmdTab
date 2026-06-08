@@ -179,9 +179,12 @@ final class CarbonHotkeyTrigger {
                     return OSStatus(eventNotHandledErr)
                 }
                 let id = hotKeyID.id
-                // Carbon dispatches on the main run loop, but hop explicitly so
-                // we touch MainActor state safely and match HotkeyTap's pattern.
-                DispatchQueue.main.async {
+                // Carbon dispatches hot-key events on the main run loop, so we
+                // are already on the main thread — touch MainActor state inline
+                // instead of deferring a whole run-loop turn through
+                // DispatchQueue.main.async. (HotkeyTap needs that hop because its
+                // tap runs on a dedicated background thread; this path does not.)
+                MainActor.assumeIsolated {
                     let me = Unmanaged<CarbonHotkeyTrigger>.fromOpaque(userData).takeUnretainedValue()
                     me.dispatch(id: id)
                 }
