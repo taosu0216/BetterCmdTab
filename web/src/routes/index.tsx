@@ -9,6 +9,8 @@ export const Route = createFileRoute("/")({
 
 const REPO = "https://github.com/rokartur/BetterCmdTab";
 
+const BREW = "brew install --cask bettercmdtab";
+
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 const reveal = {
@@ -451,6 +453,44 @@ function DownloadCta({ href }: { href: string }) {
   );
 }
 
+// Copyable Homebrew one-liner. clipboard access lives inside the click
+// handler, so this stays SSR-safe during the prerender (no top-level
+// navigator/window reference).
+function BrewCmd() {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(BREW).then(() => {
+      setCopied(true);
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1600);
+    });
+  };
+
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  return (
+    <motion.div className="brew" variants={reveal}>
+      <code className="brew-code">{BREW}</code>
+      <motion.button
+        type="button"
+        className="brew-copy"
+        onClick={copy}
+        aria-label={copied ? "Copied to clipboard" : "Copy Homebrew command"}
+        whileTap={{ scale: 0.96 }}
+      >
+        {copied ? "Copied" : "Copy"}
+      </motion.button>
+    </motion.div>
+  );
+}
+
 const downloadFmt = new Intl.NumberFormat("en-US");
 
 export function Home() {
@@ -504,6 +544,7 @@ export function Home() {
               macOS 13.0+ · Apple Silicon &amp; Intel
             </span>
           </motion.p>
+          <BrewCmd />
         </motion.section>
 
         <motion.section {...inView}>
