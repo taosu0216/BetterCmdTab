@@ -75,6 +75,11 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 - macOS 13.0 (Ventura) or newer
 - Accessibility permission
 
+### Homebrew
+```bash
+brew install --cask bettercmdtab
+```
+
 ### Download
 
 Grab the latest signed `.dmg` from the [Releases page](https://github.com/rokartur/BetterCmdTab/releases), open it, drag `BetterCmdTab.app` to `/Applications`, and launch.
