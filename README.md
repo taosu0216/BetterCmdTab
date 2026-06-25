@@ -34,39 +34,62 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 
 ## Features
 
+### Switching & Navigation
+
 - **Three layouts** — classic list, grid of icons, or live window previews.
-- **Window titles** — show each window's title under its icon in Grid and Previews.
 - **Letter-prefix jump** — type a name to jump to it.
 - **Search & launch** — press `/` to fuzzy-find, or launch any installed app.
 - **Window switching** — `` ⌘+ ` `` cycles windows of the front app.
-- **Scoped shortcuts** — a global hotkey that opens the switcher pre-filtered to all windows, the current Space, the current app's windows, or minimized only.
 - **Tap or hold** — tap to switch instantly, hold to open the switcher.
 - **Scroll to switch** — spin the mouse wheel to move through apps.
+- **Multi-monitor** — opens on the screen under the cursor.
+
+### Window & Tab Management
+
+- **Window titles** — show each window's title under its icon in Grid and Previews.
+- **Tab drill-in** — press `\` on a row whose window has tabs to pick a specific tab (Safari, Chrome, Arc, Brave, Edge, Vivaldi, Opera, Dia, Finder, Terminal, iTerm).
+- **Tabs as rows** — optionally surface each native or browser tab as its own row, not just behind the `\` peek.
+- **Quick actions** — quit, close, minimize, maximize, hide inline.
+- **Hover actions** — quick-action buttons appear on hover: close, minimize, zoom, hide, quit, force-quit.
+- **Window management** — tile windows to halves or corners, maximize, or center with `⌃⌘` arrows; press the tile key again to cycle ½ → ⅔ → ⅓ widths.
+- **Move windows** — send the highlighted window to the next display.
+
+### Filtering & Organization
+
 - **Sort order** — order apps by recents (MRU), alphabetically, or launch order.
-- **Recently closed** — reopen an app you just quit.
+- **Scoped shortcuts** — a global hotkey that opens the switcher pre-filtered to all windows, the current Space, the current app's windows, or minimized only.
+- **Current Space only** — show just the windows on the Space you're on.
 - **Minimized & hidden** — include minimized windows, hidden and windowless apps.
 - **Pin & filter** — keep favorites up top, hide the rest.
 - **Per-app rules** — hide an app, or have it ignore ⌘Tab always or only when fullscreen.
-- **Quick actions** — quit, close, minimize, maximize, hide inline.
-- **Hover actions** — quick-action buttons appear on hover: close, minimize, zoom, hide, quit, force-quit.
-- **Force quit** — `⌘+⌥+Q` SIGKILLs the highlighted app for when graceful Quit hangs.
-- **Tab drill-in** — press `\` on a row whose window has tabs to pick a specific tab (Safari, Chrome, Arc, Brave, Edge, Vivaldi, Opera, Dia, Finder, Terminal, iTerm).
-- **Tabs as rows** — optionally surface each native or browser tab as its own row, not just behind the `\` peek.
-- **Window management** — tile windows to halves or corners, maximize, or center with `⌃⌘` arrows; press the tile key again to cycle ½ → ⅔ → ⅓ widths.
-- **Move windows** — send the highlighted window to the next display.
+
+### Productivity & Workflow
+
 - **App hotkeys** — assign a global shortcut to focus or launch a chosen app (9 slots).
+- **Recently closed** — reopen an app you just quit.
 - **Unread badges** — Dock badge counts, in the switcher.
 - **Audio indicator** — flags apps playing sound.
 - **Instant Spaces** — switch Spaces with no animation.
-- **Current Space only** — show just the windows on the Space you're on.
+
+### Reliability & Power Features
+
+- **Force quit** — `⌘+⌥+Q` SIGKILLs the highlighted app for when graceful Quit hangs.
 - **Secure-input survivor** — ⌘Tab and window management keep working even while a password field holds Secure Event Input.
+
+### Appearance & Customization
+
 - **Liquid Glass** — system material on macOS 26.
 - **Theming** — panel opacity, corner radius, background material, and a custom accent color.
-- **Multi-monitor** — opens on the screen under the cursor.
+- **Configurable** — custom hotkey, size, scale, layout, grid columns, and reveal delay.
+
+### Gestures & Feedback
+
 - **Trackpad & haptics** — three-finger swipe to open the switcher or switch Spaces, with optional haptic and click feedback.
+
+### Privacy & Backup
+
 - **Hide from screen sharing** — keep the switcher out of screen recordings and shared screens. Needs macOS 14.6+.
 - **Export & import** — back up and move your whole setup as a versioned `.cmdtab` file.
-- **Configurable** — custom hotkey, size, scale, layout, grid columns, and reveal delay.
 
 ## Install
 
