@@ -237,9 +237,10 @@ final class SwitcherPanel: NSPanel {
     }
 
     /// Resolve the screen for `mode`. `mouseCursor`/`mainDisplay` are cheap live
-    /// reads; `activeWindow` is supplied by the controller (`activeWindowScreen`),
-    /// captured before our key panel stole frontmost — it falls back to cursor →
-    /// main when unavailable (no focused window, or capture not yet landed).
+    /// reads; `activeWindow` (the active monitor — the bright-menu-bar / focused
+    /// display) is supplied by the controller (`activeWindowScreen`), captured
+    /// before our key panel stole frontmost — it falls back to cursor → main when
+    /// unavailable (private API missing, or the capture not yet landed).
     static func preferredScreen(mode: SwitcherDisplayMode? = nil,
                                 activeWindowScreen: NSScreen? = nil) -> NSScreen {
         switch mode ?? Preferences.shared.switcherDisplayMode {

@@ -37,7 +37,7 @@ enum SwitcherDisplayMode: String, CaseIterable {
     var displayName: String {
         switch self {
         case .mouseCursor:  return String(localized: "Monitor with the cursor")
-        case .activeWindow: return String(localized: "Monitor with the active window")
+        case .activeWindow: return String(localized: "Monitor with the active space")
         case .mainDisplay:  return String(localized: "Main display")
         }
     }

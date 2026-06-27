@@ -8,6 +8,10 @@ import Combine
 @MainActor
 final class SwitcherSettingsViewController: SettingsTabViewController {
 
+    // Display
+    private let displayMonitorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let displayModes: [SwitcherDisplayMode] = SwitcherDisplayMode.allCases
+
     // Contents
     private let minimizedSwitch = NSSwitch()
     private let hiddenSwitch = NSSwitch()
@@ -57,6 +61,20 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
     private var cancellables = Set<AnyCancellable>()
 
     override func setupContent() {
+        // Display section — which monitor the switcher panel opens on (graduated
+        // from Experimental once stable).
+        let display = addSection(title: String(localized: "Display"), anchor: SettingsAnchor.display)
+        displayMonitorPopup.controlSize = .small
+        displayMonitorPopup.translatesAutoresizingMaskIntoConstraints = false
+        displayMonitorPopup.setContentHuggingPriority(.required, for: .horizontal)
+        displayMonitorPopup.removeAllItems()
+        displayMonitorPopup.addItems(withTitles: displayModes.map(\.displayName))
+        displayMonitorPopup.target = self
+        displayMonitorPopup.action = #selector(displayModeChanged)
+        addRow(to: display, title: String(localized: "Show switcher on"),
+               subtitle: String(localized: "Choose which monitor the switcher opens on when you have more than one display."),
+               accessory: displayMonitorPopup, searchItemID: SearchID.displayMonitor)
+
         // Switcher contents section — what kinds of windows/apps appear.
         let contents = addSection(title: String(localized: "Contents"), anchor: SettingsAnchor.contents)
         configureSwitch(minimizedSwitch, action: #selector(toggleMinimized(_:)))
@@ -250,6 +268,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         applicationsOnlySwitch.state = prefs.applicationsOnly ? .on : .off
         badgesSwitch.state = prefs.showUnreadBadges ? .on : .off
         currentSpaceSwitch.state = prefs.currentSpaceOnly ? .on : .off
+        if let i = displayModes.firstIndex(of: prefs.switcherDisplayMode) { displayMonitorPopup.selectItem(at: i) }
         selectSortOrder(prefs.sortOrder)
         tabDrillSwitch.state = prefs.tabDrillEnabled ? .on : .off
         expandTabsSwitch.state = prefs.expandTabsAsWindows ? .on : .off
@@ -324,6 +343,12 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         let idx = sortOrderPopup.indexOfSelectedItem
         guard sortOrders.indices.contains(idx) else { return }
         Preferences.shared.sortOrder = sortOrders[idx]
+    }
+
+    @objc private func displayModeChanged() {
+        let idx = displayMonitorPopup.indexOfSelectedItem
+        guard displayModes.indices.contains(idx) else { return }
+        Preferences.shared.switcherDisplayMode = displayModes[idx]
     }
 
     private func selectSortOrder(_ order: SwitcherSortOrder) {
