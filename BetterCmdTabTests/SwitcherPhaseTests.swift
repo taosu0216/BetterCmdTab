@@ -80,3 +80,74 @@ struct SwitcherReleaseMissedTests {
         #expect(SwitcherController.releaseAlreadyMissed(flags: [.maskCommand], appMask: nil, windowMask: nil))
     }
 }
+
+/// Pure-logic coverage for the `.visible` release-to-commit liveness backstop —
+/// the recovery the prior #16 fixes lacked. A keyboard ⌘Tab panel closes on the
+/// tap's single ⌘-release `flagsChanged`; if that event is dropped the panel
+/// welds into `.visible` and the tap keeps swallowing ⌘W/⌘Q. The backstop polls
+/// the live modifier and commits a missed release — but only for a panel where
+/// releasing ⌘ would actually commit, and never when `HoldModifierMonitor`
+/// already owns the release under Secure Event Input. These pin that arming
+/// matrix so it can't silently widen (perpetual poll) or narrow (re-strand).
+@Suite("Switcher visible-release backstop")
+struct SwitcherVisibleReleaseBackstopTests {
+    /// Helper with the common-case defaults: a live keyboard ⌘Tab panel.
+    private func arm(
+        phase: SwitcherController.Phase = .visible,
+        primedByHeldChord: Bool = true,
+        stickyOpen: Bool = false,
+        tabDrillActive: Bool = false,
+        secureInputActive: Bool = false
+    ) -> Bool {
+        SwitcherController.shouldArmVisibleReleaseBackstop(
+            phase: phase,
+            primedByHeldChord: primedByHeldChord,
+            stickyOpen: stickyOpen,
+            tabDrillActive: tabDrillActive,
+            secureInputActive: secureInputActive
+        )
+    }
+
+    @Test func arms_forLiveKeyboardPanel() {
+        // The primary issue #16 case: a held-chord ⌘Tab panel on screen under
+        // normal input — releasing ⌘ commits, so the backstop must guard it.
+        #expect(arm())
+    }
+
+    @Test func off_whenNotVisible() {
+        // Closed (the ~99.99% case) and panel-less `.primed` (owned by
+        // primedWatchdog) schedule no timer.
+        #expect(!arm(phase: .idle))
+        #expect(!arm(phase: .primed))
+    }
+
+    @Test func off_forGestureOrScopedOpens() {
+        // Gesture / scoped opens carry `primedByHeldChord == false`: they are
+        // sticky and never commit on release, so the backstop must stay off.
+        #expect(!arm(primedByHeldChord: false))
+    }
+
+    @Test func off_whenParkedSticky() {
+        // Mouse detach / stay-open search parks the panel (`stickyOpen`): releasing
+        // ⌘ no longer commits, so polling would only waste wakes.
+        #expect(!arm(stickyOpen: true))
+    }
+
+    @Test func on_whenDrilledIntoTabStrip() {
+        // Tab drill-in forces `stickyOpen` true but STILL commits the highlighted
+        // tab on release — so a dropped release there must be recovered too. This
+        // is the gap a naive `!stickyOpen` gate would leave open.
+        #expect(arm(stickyOpen: true, tabDrillActive: true))
+    }
+
+    @Test func arms_underSecureInput_forFlagsStateIndependentRecovery() {
+        // Secure input is intentionally NOT excluded (issue #16): HoldModifierMonitor's
+        // release poll reads the same CGEventSource.flagsState that can stick reporting
+        // ⌘-held, so the backstop must also run under secure input to drive the
+        // flagsState-independent no-interaction force-close.
+        #expect(arm(secureInputActive: true))
+        #expect(arm(stickyOpen: true, tabDrillActive: true, secureInputActive: true))
+        // Sticky-without-drill still never arms, secure input or not.
+        #expect(!arm(stickyOpen: true, secureInputActive: true))
+    }
+}

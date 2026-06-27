@@ -138,6 +138,42 @@ final class SwitcherController: SwitcherViewDelegate {
     /// `revealDelay` (clamped to 40…500 ms) and any off-main first-scan, so it
     /// only ever fires on a genuine strand, never on a legitimately slow open.
     private static let primedWatchdogTimeout: TimeInterval = 1.5
+    /// Liveness backstop for a stranded `.visible` release-to-commit panel — the
+    /// `.visible` twin of `primedWatchdog`. The keyboard ⌘Tab panel closes on the
+    /// ⌘-release `flagsChanged`, delivered under NORMAL input by the CGEvent tap
+    /// alone (a single edge-triggered event). If that one event is ever dropped —
+    /// the tap was disabled-by-timeout at that instant, transient deafness, a
+    /// Secure-Event-Input flap — the panel welds into `.visible`:
+    /// `panelPresentedFlag` stays set and the tap then swallows ⌘W/⌘Q/⌘M/⌘H/⌘F +
+    /// letter-jump system-wide, the "Cmd+Q/W stop working after a while" failure
+    /// (issue #16). `primedWatchdog` recovers only `.primed`; `HoldModifierMonitor`
+    /// polls the release only under Secure Event Input — so `.visible` under normal
+    /// input had no recovery. `.visible` has no fixed ceiling (the user may hold ⌘
+    /// while deciding for an unbounded time), so this can't be a timeout: it polls
+    /// the live physical modifier on a relaxed cadence and commits only once ⌘ is
+    /// actually up. Armed only for a held-chord, non-parked panel under normal
+    /// input (see `shouldArmVisibleReleaseBackstop`); `nil` otherwise, so a closed
+    /// switcher schedules no timer.
+    private var visibleReleaseBackstop: Timer?
+    /// Relaxed poll cadence for `visibleReleaseBackstop`. The tap is the instant
+    /// fast path that commits the common case; this only catches a *dropped*
+    /// release, where ~0.2 s of extra latency on an already-glitched event is
+    /// invisible — so ~5 Hz is plenty (not `HoldModifierMonitor`'s 33 Hz held
+    /// tier, which exists only because there the poll is the sole commit signal),
+    /// keeping the main-thread wake count low while the panel is briefly up.
+    private static let visibleReleaseBackstopInterval: TimeInterval = 0.2
+    /// Last time the user actively *steered* a visible panel (navigation, search
+    /// edit, drill nav — see `noteSteeringActivity`). The release-to-commit
+    /// backstop force-closes a panel that has gone this long without steering, so
+    /// a panel welded open by a STUCK `CGEventSource.flagsState` (the tap was
+    /// disabled across the real ⌘-release, leaving the modifier reported as still
+    /// held — which defeats every flagsState-based recovery, incl. PR #67) still
+    /// self-heals and the tap stops swallowing ⌘W/⌘Q (issue #16).
+    private var lastVisibleActivity: Date?
+    /// No-interaction ceiling for the force-close above. Generous enough that an
+    /// actively-steered panel never hits it (any nav refreshes the stamp), short
+    /// enough to bound how long ⌘W can be eaten when the modifier state is stuck.
+    private static let visibleStrandCeiling: TimeInterval = 4
     private var currentMetrics: SwitcherMetrics = .baseline
     private var letterBuffer: String = ""
     private var letterBufferTimer: Timer?
@@ -151,8 +187,14 @@ final class SwitcherController: SwitcherViewDelegate {
     /// modifier) no longer commits — only Return or a mouse click does.
     /// (The secure-input Carbon chords no longer key off this: they gate on the
     /// live hold modifier + the search/drill mode, re-synced from the poller and
-    /// the search/drill transitions, so `stickyOpen` needs no `didSet` here.)
-    private var stickyOpen = false
+    /// the search/drill transitions.)
+    ///
+    /// Sticky transitions happen mid-`.visible` with no phase edge (mouse detach,
+    /// stay-open park, drill enter/exit), and they flip whether releasing ⌘ would
+    /// still commit — so the `didSet` re-syncs `visibleReleaseBackstop` (issue #16).
+    private var stickyOpen = false {
+        didSet { if stickyOpen != oldValue { syncVisibleReleaseBackstop() } }
+    }
     /// `stickyOpen` snapshotted at drill entry so exiting the drill (e.g. the
     /// `\` toggle while ⌘ is still held) restores the pre-drill detach state
     /// instead of leaving `applyDrill`'s forced `stickyOpen = true` set — which
@@ -162,7 +204,13 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Cmd+Left/Right, arrows) step `tabIndex` inside the highlighted row's
     /// `tabs` array instead of changing the app selection. Reset on every row
     /// change, dismiss, and `baseRows` swap.
-    private var tabDrillActive: Bool = false
+    ///
+    /// Drilling in/out flips whether releasing ⌘ commits (the drill commits the
+    /// highlighted tab on release even though it forces `stickyOpen`), so the
+    /// `didSet` re-syncs `visibleReleaseBackstop` on those edges (issue #16).
+    private var tabDrillActive: Bool = false {
+        didSet { if tabDrillActive != oldValue { syncVisibleReleaseBackstop() } }
+    }
     private var tabIndex: Int = 0
     private var tabTitles: [String] = []
     /// Transient, non-interactive message shown in the tab-strip region (e.g.
@@ -885,8 +933,22 @@ final class SwitcherController: SwitcherViewDelegate {
     /// React to a Secure Event Input transition surfaced by `secureInputMonitor`:
     /// re-derive and apply the native-shortcut override for the new state.
     private func handleSecureInputChange(_ active: Bool) {
+        guard active != secureInputActive else { return }
         secureInputActive = active
+        // While the panel is CLOSED the native-override plan does NOT depend on
+        // secure input — the in-panel parity Carbon chords exist only while a panel
+        // is open. So a secure-input flap while idle must not recompute/reapply the
+        // override: a flapping secure-input source (observed pulsing ~1×/s) was
+        // driving syncNativeHotkeyOverride → carbonTrigger.update(), which
+        // UNREGISTERS + RE-REGISTERS every global Carbon hotkey on each flap. That
+        // ~1 Hz WindowServer churn was disabling the CGEvent tap (the issue #16
+        // storm → missed ⌘-release → stranded panel → ⌘W/⌘Q swallowed). The flag is
+        // kept current above; the panel's open edge re-syncs the override from it.
+        guard phase != .idle else { return }
+        // A secure-input flip while a panel IS open changes which poller owns
+        // ⌘-release detection (HoldModifierMonitor under secure input), so re-sync.
         syncNativeHotkeyOverride()
+        syncVisibleReleaseBackstop()
     }
 
     /// Re-derive the secure-input Carbon chords after an in-panel mode change
@@ -999,6 +1061,33 @@ final class SwitcherController: SwitcherViewDelegate {
         let appHeld = appMask.map { HoldModifierMonitor.holdState(flags: flags, mask: $0) } ?? false
         let windowHeld = windowMask.map { HoldModifierMonitor.holdState(flags: flags, mask: $0) } ?? false
         return !(appHeld || windowHeld)
+    }
+
+    /// Pure: should the `.visible` release-to-commit liveness backstop
+    /// (`visibleReleaseBackstop`) be armed? Only when a panel is actually on
+    /// screen (`.visible`) for a held-chord keyboard open (`primedByHeldChord` —
+    /// false for gesture/scoped opens, which don't commit on release) under NORMAL
+    /// input, AND releasing the hold modifier would still commit something: i.e.
+    /// not parked sticky/stay-open (`stickyOpen`) UNLESS drilled into a tab strip
+    /// (the drill commits the highlighted tab on release even though it forces
+    /// `stickyOpen` true). Secure Event Input is excluded because
+    /// `HoldModifierMonitor` already polls the release there — running both would
+    /// double-poll. Isolated so the arming matrix stays unit-testable.
+    nonisolated static func shouldArmVisibleReleaseBackstop(
+        phase: Phase,
+        primedByHeldChord: Bool,
+        stickyOpen: Bool,
+        tabDrillActive: Bool,
+        secureInputActive: Bool
+    ) -> Bool {
+        // NOTE: secure input is deliberately NOT excluded. Under Secure Event Input
+        // the release is supposed to be caught by HoldModifierMonitor, but that
+        // poll reads the SAME CGEventSource.flagsState that can stick reporting
+        // ⌘-held (issue #16) — so the backstop must also run there to drive the
+        // flagsState-independent no-interaction force-close. `secureInputActive`
+        // is kept as a parameter for the unit matrix and future use.
+        _ = secureInputActive
+        return phase == .visible && primedByHeldChord && (!stickyOpen || tabDrillActive)
     }
 
     /// Live check of `releaseAlreadyMissed` against the current physical modifier
@@ -1282,6 +1371,8 @@ final class SwitcherController: SwitcherViewDelegate {
         secureInputMonitor.stop()
         holdMonitor.stop()
         holdMonitorRunning = false
+        visibleReleaseBackstop?.invalidate()
+        visibleReleaseBackstop = nil
         carbonTrigger.uninstall()
         if !disabledSymbolicKeys.isEmpty {
             PrivateAPI.setNativeCommandTabEnabled(true, disabledSymbolicKeys)
@@ -1418,6 +1509,15 @@ final class SwitcherController: SwitcherViewDelegate {
                 primedWatchdog?.invalidate()
                 primedWatchdog = nil
             }
+            // Liveness backstop for a stranded `.visible` release-to-commit panel
+            // (issue #16). Synced on EVERY phase edge — deliberately NOT under the
+            // `secureInputActive` gate below — so the common normal-input close
+            // (commit/cancel → `.idle`) always tears it down, and a fresh `.visible`
+            // arms it.
+            syncVisibleReleaseBackstop()
+            // Seed the steering stamp on the open edge so the no-interaction
+            // force-close ceiling is measured from when the panel appeared.
+            if newValue == .visible { lastVisibleActivity = Date() }
             // Returning to idle ends any scoped-shortcut open so the next plain
             // ⌘Tab is unfiltered. Single chokepoint — every exit path (commit,
             // cancel, dismiss) flows through here.
@@ -1547,6 +1647,7 @@ final class SwitcherController: SwitcherViewDelegate {
 
     func switcherViewDidHover(index: Int) {
         guard phase == .visible else { return }
+        lastVisibleActivity = Date() // #16: mouse steering keeps the panel alive
         guard rows.indices.contains(index), index != self.index else { return }
         // Moving the selection off the drilled-in row drops drill mode — the
         // strip belongs to the previous row's tabs.
@@ -1592,7 +1693,27 @@ final class SwitcherController: SwitcherViewDelegate {
         }
     }
 
+    /// Refresh `lastVisibleActivity` on genuine user *steering* of the panel —
+    /// navigation, search editing, drill nav. Deliberately NOT the in-panel action
+    /// keys (close/quit/minimize/hide/fullscreen — those are the very symptom of a
+    /// stranded swallow, and a user mashing ⌘W must not keep the panel alive), nor
+    /// commit/escape/dismiss/releaseCmd (those already close it). Lets the
+    /// no-interaction force-close distinguish "actively browsing" from "welded
+    /// open and abandoned" (issue #16).
+    private func noteSteeringActivity(for event: HotkeyTap.Event) {
+        switch event {
+        case .nextApp, .prevApp, .nextWindow, .prevWindow, .nextRow, .prevRow,
+             .spatialLeft, .spatialRight, .letterInput, .letterInputKey,
+             .searchInput, .searchInputKey, .searchBackspace, .toggleSearch,
+             .enterTabDrill, .exitTabDrill, .tabPrev, .tabNext:
+            lastVisibleActivity = Date()
+        default:
+            break
+        }
+    }
+
     private func handle(_ event: HotkeyTap.Event) {
+        noteSteeringActivity(for: event)
         switch event {
         case .nextApp:
             // Secure-input Carbon parity with the tap's drill branch: while
@@ -1959,6 +2080,77 @@ final class SwitcherController: SwitcherViewDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         primedWatchdog = timer
+    }
+
+    /// Arm or tear down `visibleReleaseBackstop` to match the current state.
+    /// Idempotent — a no-op when the desired and actual states already agree — so
+    /// it is safe to call from every edge that can change the decision: the single
+    /// `phase` chokepoint, the `stickyOpen` / `tabDrillActive` `didSet`s, and a
+    /// secure-input transition. Costs nothing while the switcher is closed (the
+    /// decision is false at `.idle`, so no timer is ever scheduled).
+    private func syncVisibleReleaseBackstop() {
+        let want = Self.shouldArmVisibleReleaseBackstop(
+            phase: phase,
+            primedByHeldChord: primedByHeldChord,
+            stickyOpen: stickyOpen,
+            tabDrillActive: tabDrillActive,
+            secureInputActive: secureInputActive
+        )
+        if want {
+            guard visibleReleaseBackstop == nil else { return }
+            let timer = Timer(timeInterval: Self.visibleReleaseBackstopInterval, repeats: true) { [weak self] _ in
+                // The timer fires on the main run loop (added below), so stay on it
+                // inline rather than hopping through `Task { @MainActor }` (mirrors
+                // the reveal timer in `schedulePrimedReveal`).
+                MainActor.assumeIsolated { self?.visibleReleaseBackstopFired() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            visibleReleaseBackstop = timer
+        } else {
+            visibleReleaseBackstop?.invalidate()
+            visibleReleaseBackstop = nil
+        }
+    }
+
+    /// One `visibleReleaseBackstop` tick. Stand down if the panel is no longer in a
+    /// backstopped state; otherwise re-read the live physical modifier and, only if
+    /// the hold modifier is genuinely up, route through the same chokepoint the
+    /// tap's `.releaseCmd` uses — recovering a panel whose ⌘-release `flagsChanged`
+    /// was dropped. A still-held ⌘ (`holdReleaseAlreadyMissed() == false`) is a
+    /// no-op, so a user mid-decision is never committed out from under (issue #16).
+    private func visibleReleaseBackstopFired() {
+        guard Self.shouldArmVisibleReleaseBackstop(
+            phase: phase,
+            primedByHeldChord: primedByHeldChord,
+            stickyOpen: stickyOpen,
+            tabDrillActive: tabDrillActive,
+            secureInputActive: secureInputActive
+        ) else {
+            syncVisibleReleaseBackstop()
+            return
+        }
+        // Fast path: the live modifier state confirms ⌘ is up — honour the missed
+        // release immediately (commit), exactly as the tap's `.releaseCmd` would.
+        if holdReleaseAlreadyMissed() {
+            Log.switcher.warning("visible panel outlived its ⌘-release — recovering (issue #16)")
+            handleModifierRelease()
+            return
+        }
+        // Robust path: when the tap was disabled across the real release, the
+        // ⌘-up is lost AND `CGEventSource.flagsState` can stick reporting ⌘-held —
+        // so the fast path never fires and the panel is welded open with the tap
+        // swallowing ⌘W/⌘Q. Force it closed once the user has stopped steering it
+        // past the ceiling. flagsState-independent, so it heals a stuck modifier
+        // that PR #67 could not (issue #16).
+        if let last = lastVisibleActivity,
+           Date().timeIntervalSince(last) > Self.visibleStrandCeiling {
+            let idle = Int(Date().timeIntervalSince(last))
+            Log.switcher.error("visible panel stranded \(idle)s with no interaction — force-closing (issue #16)")
+            // The user has moved on by now; don't yank focus back to the app that
+            // was frontmost at open — just dismiss so the tap stops swallowing ⌘W.
+            previousFrontmostApp = nil
+            cancel()
+        }
     }
 
     private func schedulePrimedReveal() {
