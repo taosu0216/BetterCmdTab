@@ -1823,6 +1823,34 @@
         }
       }
     },
+    "Display" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pantalla"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran"
+          }
+        }
+      }
+    },
     "Don't hide" : {
       "localizations" : {
         "de" : {
@@ -4092,30 +4120,30 @@
         }
       }
     },
-    "Monitor with the active window" : {
+    "Monitor with the active space" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bildschirm mit dem aktiven Fenster"
+            "value" : "Bildschirm mit dem aktiven Space"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pantalla con la ventana activa"
+            "value" : "Pantalla con el espacio activo"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Écran avec la fenêtre active"
+            "value" : "Écran avec l'espace actif"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ekran z aktywnym oknem"
+            "value" : "Ekran z aktywną przestrzenią"
           }
         }
       }

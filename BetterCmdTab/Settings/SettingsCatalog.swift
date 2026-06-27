@@ -37,6 +37,7 @@ enum SettingsAnchor {
     static let permissions = "privacy.permissions"
     static let recovery = "privacy.recovery"
     // Switcher
+    static let display = "switcher.display"
     static let contents = "switcher.contents"
     static let tabs = "switcher.tabs"
     static let search = "switcher.search"
@@ -99,6 +100,7 @@ enum SearchID {
     static let clickDismiss = "switcher.clickDismiss"
     static let vimNavigation = "switcher.vimNavigation"
     static let hoverActions = "switcher.hoverActions"
+    static let displayMonitor = "switcher.displayMonitor"
     static let exceptions = "switcher.exceptions"
     static let pinnedApps = "switcher.pinnedApps"
     // Appearance
@@ -118,7 +120,6 @@ enum SearchID {
     static let sensitivity = "experimental.sensitivity"
     static let instantSpace = "experimental.instantSpace"
     static let mruWindowsSort = "experimental.mruWindowsSort"
-    static let displayMonitor = "experimental.displayMonitor"
 }
 
 @MainActor
@@ -257,6 +258,9 @@ enum SettingsCatalog {
         item(SearchID.restoreShortcuts, .privacy, SettingsAnchor.recovery, String(localized: "Privacy"), String(localized: "Recovery"),
              String(localized: "Restore macOS keyboard shortcuts"), ["restore", "recover", "command tab", "cmd tab", "native", "symbolic hotkey", "stuck", "reset shortcuts"]),
 
+        // Switcher · Display
+        item(SearchID.displayMonitor, .switcher, SettingsAnchor.display, String(localized: "Switcher"), String(localized: "Display"),
+             String(localized: "Show switcher on"), ["display", "monitor", "screen", "multi monitor", "cursor", "main display", "active space"]),
         // Switcher · Contents
         item(SearchID.showMinimized, .switcher, SettingsAnchor.contents, String(localized: "Switcher"), String(localized: "Contents"),
              String(localized: "Show minimized windows"), ["minimized", "minimize"]),
@@ -352,8 +356,6 @@ enum SettingsCatalog {
              String(localized: "Switch Spaces without animation"), ["spaces", "space", "animation", "instant", "full screen"]),
         item(SearchID.mruWindowsSort, .experimental, SettingsAnchor.experimental, String(localized: "Experimental"), String(localized: "Experimental"),
              String(localized: "Most recent (windows) sort order"), ["sort", "window", "recent", "order", "mru", "windows"]),
-        item(SearchID.displayMonitor, .experimental, SettingsAnchor.experimental, String(localized: "Experimental"), String(localized: "Experimental"),
-             String(localized: "Show switcher on"), ["display", "monitor", "screen", "multi monitor", "cursor", "main display", "active window"]),
     ]
 
     private static func item(

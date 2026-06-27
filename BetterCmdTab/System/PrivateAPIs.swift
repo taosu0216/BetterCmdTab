@@ -117,6 +117,11 @@ enum PrivateAPI {
     // swipe will move, so we only post one for jumps within that display.
     private static let getActiveSpaceFn: (@convention(c) (Int32) -> UInt64)? =
         sym("CGSGetActiveSpace", in: skyLight)
+    // (cid) -> the active (bright) menu bar's display UUID string. Tracks the
+    // FOCUSED display — keyboard focus / frontmost window — NOT the cursor,
+    // unlike CGSGetActiveSpace. Backs opening the switcher on the active monitor.
+    private static let copyActiveMenuBarDisplayFn: (@convention(c) (Int32) -> Unmanaged<CFString>?)? =
+        sym("SLSCopyActiveMenuBarDisplayIdentifier", in: skyLight)
 
     // MARK: - SkyLight: current-Space queries (read-only)
 
@@ -126,6 +131,47 @@ enum PrivateAPI {
         guard let mainConnection = mainConnectionFn, let getActive = getActiveSpaceFn else { return nil }
         let space = getActive(mainConnection())
         return space == 0 ? nil : space
+    }
+
+    /// The CoreGraphics display id of the monitor whose menu bar is currently
+    /// active (the bright one) — i.e. the display the user is working on. This is
+    /// the *focused* display: it follows keyboard focus / the frontmost window,
+    /// NOT the mouse. Hovering the pointer over another monitor leaves that
+    /// monitor's menu bar dimmed and does not change this result.
+    ///
+    /// Resolves via `SLSCopyActiveMenuBarDisplayIdentifier` (a display UUID, or
+    /// the literal "Main"), mapped to a `CGDirectDisplayID`. This is deliberately
+    /// NOT `CGSGetActiveSpace`, whose active-Space id tracks the display under
+    /// the cursor — using that made the switcher follow the mouse onto a dimmed
+    /// monitor instead of staying on the active (bright-menu-bar) one.
+    ///
+    /// Returns nil — so the caller falls back to the focused-window/cursor chain
+    /// — when the private API is unavailable or the identifier can't be placed on
+    /// a live display. CGS/CoreGraphics only (no AppKit) so it is safe to call
+    /// off the main thread, where the switcher resolves its target screen.
+    static func activeMenuBarDisplayID() -> CGDirectDisplayID? {
+        guard let mainConnection = mainConnectionFn,
+              let copyMenuBarDisplay = copyActiveMenuBarDisplayFn,
+              let identifier = copyMenuBarDisplay(mainConnection())?.takeRetainedValue() else { return nil }
+        return displayID(forManagedIdentifier: identifier as String)
+    }
+
+    /// Map a SkyLight "Display Identifier" (e.g. from
+    /// `SLSCopyActiveMenuBarDisplayIdentifier`) to a CG display id. The value is
+    /// the literal "Main" on some macOS builds, otherwise a display UUID string
+    /// matched against the online displays' UUIDs. nil when no online display
+    /// matches (e.g. unplugged between query and lookup).
+    private static func displayID(forManagedIdentifier identifier: String) -> CGDirectDisplayID? {
+        if identifier == "Main" { return CGMainDisplayID() }
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success, count > 0 else { return nil }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return nil }
+        for id in ids {
+            guard let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else { continue }
+            if (CFUUIDCreateString(nil, uuid) as String) == identifier { return id }
+        }
+        return nil
     }
 
     /// Classify each window id by Space membership in a single CGS pass.
