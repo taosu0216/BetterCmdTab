@@ -34,6 +34,14 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Native symbolic hotkeys (⌘Tab etc.) we've currently disabled at the
     /// WindowServer, so teardown / a remap can re-enable exactly those.
     private var disabledSymbolicKeys: [PrivateAPI.SymbolicHotKey] = []
+    /// The Carbon chord set last handed to `carbonTrigger.update`. `update` is a
+    /// WindowServer op that transiently disables the CGEvent tap (the disable that
+    /// can drop a ⌘-up and weld the panel — issue #16), so it must run ONLY on a
+    /// genuine change. `syncNativeHotkeyOverride` is re-driven ~1×/s by secure-input
+    /// flaps and on every ⌘ up/down via `holdMonitor`, so without this guard the set
+    /// is torn down and re-registered constantly. Reset on teardown so an identical
+    /// plan re-applies after `carbonTrigger.uninstall`.
+    private var lastAppliedChords: [ChordSpec] = []
     /// Polls Secure Event Input. The native-shortcut override (symbolic disable +
     /// Carbon registration) is applied ONLY while it is active — outside it the
     /// tap alone suppresses + triggers ⌘Tab, so the native shortcut is never left
@@ -104,7 +112,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// Hint letters to render on tiles — empty when the user disabled letter
     /// hints, so no per-window letter is drawn. The internal `labels` array is
     /// kept populated for search reordering regardless.
-    private var displayLabels: [String] { Preferences.shared.letterHintsEnabled ? labels : [] }
+    private var displayLabels: [String] { effective.letterHintsEnabled ? labels : [] }
     private var index: Int = 0
     /// The frontmost app's focused window captured at the instant the switcher
     /// opens — before the panel is presented, while the user's real app is still
@@ -176,11 +184,26 @@ final class SwitcherController: SwitcherViewDelegate {
     /// input flagsState is reliable, so this stamp drives nothing — a held ⌘ keeps
     /// the panel up for as long as the user wants, with no idle ceiling.
     private var lastVisibleActivity: Date?
+    /// When Secure Event Input last cleared (ON→OFF) while a panel was open. The
+    /// no-interaction force-close is normally SEI-only, but a ⌘-release dropped
+    /// during an SEI-deaf window can leave `CGEventSource.flagsState` latched
+    /// ⌘-held even AFTER SEI clears — welding the panel with neither backstop escape
+    /// live (the fast path reads the lie, the force-close was SEI-gated). Stamped on
+    /// the SEI→OFF edge so the force-close also covers a bounded window past it, and
+    /// cleared on panel close so it can't yank a later, unrelated panel (issue #16).
+    private var lastSecureInputClearedAt: Date?
     /// No-interaction ceiling for the secure-input force-close above. Generous enough
     /// that an actively-steered panel never hits it (any nav refreshes the stamp),
     /// short enough to bound how long ⌘W can be eaten when flagsState is stuck.
     /// `nonisolated` so the pure `shouldForceCloseStrandedVisible` gate can read it.
     nonisolated private static let visibleStrandCeiling: TimeInterval = 4
+    /// How long after Secure Event Input clears the no-interaction force-close stays
+    /// armed, to catch a `flagsState` ⌘-held latch that survives the SEI→OFF edge
+    /// (issue #16). A few seconds past the ceiling: the latch resolves on the user's
+    /// next physical ⌘ press+release, so it need not be long. Must exceed
+    /// `visibleStrandCeiling` or the window would close before `idle` can pass it.
+    /// `nonisolated` for the pure gate.
+    nonisolated private static let postSecureLatchWindow: TimeInterval = 8
     private var currentMetrics: SwitcherMetrics = .baseline
     private var letterBuffer: String = ""
     private var letterBufferTimer: Timer?
@@ -297,6 +320,22 @@ final class SwitcherController: SwitcherViewDelegate {
     /// `.currentAppWindows` scope (we're an accessory app, so the frontmost at
     /// trigger time is the user's real app, not us).
     private var scopeFrontPid: pid_t? = nil
+
+    /// Per-shortcut behavioral override (#74), resolved into a `CatalogFilter.Config`
+    /// when a trigger fires and threaded into the off-main catalog filter for this
+    /// reveal. `nil` when the firing shortcut has no override — the catalog then
+    /// reads the global config, so the common ⌘Tab path is byte-identical.
+    private var activeFilterConfig: CatalogFilter.Config? = nil
+    /// Per-shortcut appearance + reveal-time behavioral snapshot (#74). Rebuilt at
+    /// each trigger; resolves to the globals when the shortcut has no override.
+    private var effective: EffectiveSettings = .defaults
+    /// The profile whose in-panel action keys (#5) are currently applied to the
+    /// tap. Set per trigger; read by `panelActionSpecs` (secure-input native path).
+    /// Defaults to `.switchApps` — the profile the gesture-opened apps switcher uses.
+    private var activeTarget: SwitchTarget = .switchApps
+    /// Last keycode→action map pushed to the tap, so an unchanged push (the common
+    /// case) skips the cross-thread lock write.
+    private var lastPanelKeyMap: [Int64: HotkeyTap.PanelActionKey] = [:]
 
     /// Signatures of windows the user just closed locally. Any cache refresh
     /// completing before the AX close has propagated would otherwise re-add
@@ -596,7 +635,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // The Carbon fallback drives the same handler as the tap.
         carbonTrigger.onEvent = { [weak self] event in self?.handle(event) }
         // Scoped-shortcut triggers open the switcher pre-filtered (#3).
-        ScopedSwitch.onTrigger = { [weak self] scope in self?.openScoped(scope) }
+        ScopedSwitch.onTrigger = { [weak self] id, scope in self?.openScoped(id: id, scope: scope) }
         // User-invoked recovery from the Privacy pane: re-enable every native
         // symbolic hotkey we may have disabled, in case a prior unclean exit
         // left the system ⌘Tab stuck. Re-syncs the live override afterwards so
@@ -833,20 +872,29 @@ final class SwitcherController: SwitcherViewDelegate {
     /// `panelActionKeys` bindings and push it to the tap. Only the *keycode* is
     /// used — the chord's modifier is irrelevant in-panel (⌘ is held the whole
     /// time the switcher is open), so e.g. a stored ⌘W matches the physical W
-    /// while switching. Re-derived on launch and on any shortcut change.
-    private func pushPanelKeyBindings() {
+    /// while switching. `target` selects the profile whose per-profile keys (#5) to
+    /// apply; the default `.switchApps` is the baseline used on launch, on any
+    /// shortcut change, while idle, and by the gesture-opened apps switcher.
+    private func pushPanelKeyBindings(for target: SwitchTarget = .switchApps) {
+        let key = target.storageKey
         var map: [Int64: HotkeyTap.PanelActionKey] = [:]
         let pairs: [(BetterShortcuts.Name, HotkeyTap.PanelActionKey)] = [
-            (.panelClose, .close),
-            (.panelMinimize, .minimize),
-            (.panelHide, .hide),
-            (.panelQuit, .quit),
-            (.panelFullscreen, .fullscreen),
+            (.panelClose(for: key), .close),
+            (.panelMinimize(for: key), .minimize),
+            (.panelHide(for: key), .hide),
+            (.panelQuit(for: key), .quit),
+            (.panelFullscreen(for: key), .fullscreen),
         ]
         for (name, action) in pairs {
             guard let shortcut = BetterShortcuts.getShortcut(for: name) else { continue }
-            map[Int64(shortcut.carbonKeyCode)] = action
+            // First-wins on a keycode collision (a profile may bind two actions to
+            // the same key). Matches the secure-input native-chord dedupe
+            // (`computeNativeOverridePlan`), which is also first-wins.
+            let keyCode = Int64(shortcut.carbonKeyCode)
+            if map[keyCode] == nil { map[keyCode] = action }
         }
+        guard map != lastPanelKeyMap else { return }
+        lastPanelKeyMap = map
         hotkey.setPanelKeyBindings(map)
     }
 
@@ -972,6 +1020,15 @@ final class SwitcherController: SwitcherViewDelegate {
         // ⌘-release detection (HoldModifierMonitor under secure input), so re-sync.
         syncNativeHotkeyOverride()
         syncVisibleReleaseBackstop()
+        // On the SEI→OFF edge a ⌘-release dropped during the just-ended deaf window
+        // can leave a held-chord panel welded with flagsState latched ⌘-held. Stamp
+        // the edge so the no-interaction force-close covers the bounded latch window
+        // (`shouldForceCloseStrandedVisible`), and run one recovery pass now instead
+        // of waiting up to a 0.2s tick for the next backstop fire (issue #16).
+        if !active {
+            lastSecureInputClearedAt = Date()
+            visibleReleaseBackstopFired()
+        }
     }
 
     /// Re-derive the secure-input Carbon chords after an in-panel mode change
@@ -1044,12 +1101,13 @@ final class SwitcherController: SwitcherViewDelegate {
     /// The rebindable in-panel action keys (W/M/H/Q/F), in the pure plan's terms.
     /// Same source as `pushPanelKeyBindings` — only the keycode matters in-panel.
     private func panelActionSpecs() -> [PanelActionSpec] {
+        let key = activeTarget.storageKey
         let pairs: [(BetterShortcuts.Name, ChordSpec.Kind)] = [
-            (.panelClose, .close),
-            (.panelMinimize, .minimize),
-            (.panelHide, .hide),
-            (.panelQuit, .quit),
-            (.panelFullscreen, .fullscreen),
+            (.panelClose(for: key), .close),
+            (.panelMinimize(for: key), .minimize),
+            (.panelHide(for: key), .hide),
+            (.panelQuit(for: key), .quit),
+            (.panelFullscreen(for: key), .fullscreen),
         ]
         var specs: [PanelActionSpec] = []
         for (name, action) in pairs {
@@ -1114,19 +1172,24 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     /// Pure: on a backstop tick, should an idle `.visible` panel be force-closed?
-    /// ONLY under Secure Event Input — the sole state where `CGEventSource.flagsState`
-    /// can stick reporting ⌘-held (HoldModifierMonitor polls that same lying state),
-    /// making the no-interaction ceiling the only flagsState-independent way out of a
-    /// welded-open panel (issue #16). Under NORMAL input flagsState is authoritative:
-    /// a missed ⌘-release is recovered by the backstop's fast path within one tick, so
-    /// a panel still on screen means ⌘ is genuinely held — never force-close it out
-    /// from under a user holding ⌘ while reading the panel without steering it.
-    /// Isolated so the gate stays unit-testable.
+    /// Fires while `CGEventSource.flagsState` can stick reporting ⌘-held — the sole
+    /// state where the no-interaction ceiling is the only flagsState-independent way
+    /// out of a welded-open panel (issue #16). That is true not only WHILE Secure
+    /// Event Input is active (HoldModifierMonitor polls the same lying state), but
+    /// also for a bounded window AFTER an SEI flap clears: a ⌘-release dropped during
+    /// the deaf window can leave the latch set past the SEI→OFF edge, and the
+    /// SEI-gated force-close alone would never reach it (`withinPostSecureWindow`).
+    /// Under NORMAL input with no recent flap, flagsState is authoritative: a missed
+    /// ⌘-release is recovered by the fast path within one tick, so a panel still on
+    /// screen means ⌘ is genuinely held — never force-close it out from under a user
+    /// holding ⌘ and reading the panel without steering it. Isolated so the gate
+    /// stays unit-testable.
     nonisolated static func shouldForceCloseStrandedVisible(
         secureInputActive: Bool,
+        withinPostSecureWindow: Bool,
         idle: TimeInterval
     ) -> Bool {
-        secureInputActive && idle > visibleStrandCeiling
+        (secureInputActive || withinPostSecureWindow) && idle > visibleStrandCeiling
     }
 
     /// Live check of `releaseAlreadyMissed` against the current physical modifier
@@ -1135,6 +1198,15 @@ final class SwitcherController: SwitcherViewDelegate {
         // A disabled trigger (nil) contributes no mask, so it never counts as held.
         let appTrigger = Self.carbonTrigger(for: .switchApps)
         let windowTrigger = Self.carbonTrigger(for: .switchWindows)
+        // With secure input OFF the tap sees real key/flag events, so its last live
+        // hold state is truthful — unlike `CGEventSource.flagsState`, which can latch
+        // ⌘-held across a secure-input flap (issue #16). Prefer it: a "released"
+        // reading recovers a weld the lying flagsState would hide, and the tap only
+        // reports released after a genuine ⌘-up, so it can't yank a real hold. Stale
+        // while the tap is deaf under secure input, so trust it only when SEI is off.
+        if !secureInputActive && !hotkey.liveTriggerHoldHeld() {
+            return true
+        }
         return Self.releaseAlreadyMissed(
             flags: CGEventSource.flagsState(.combinedSessionState),
             appMask: appTrigger.map { Self.holdMask(for: $0.carbonModifiers) },
@@ -1154,6 +1226,14 @@ final class SwitcherController: SwitcherViewDelegate {
             disabledSymbolicKeys = toDisable
             persistDisabledSymbolicKeys(toDisable)
         }
+        // Change-guard: `carbonTrigger.update` unregisters + re-registers the whole
+        // chord set and transiently disables the CGEvent tap, so skip it when the
+        // plan's chords are unchanged. `ChordSpec` is `Equatable`, so this is a
+        // cheap value compare with no WindowServer IPC. Collapsing the per-flap /
+        // per-⌘ churn here removes both the repeating 6-retry log and the
+        // self-inflicted tap-disable that drops the ⌘-up and welds the panel (#16).
+        guard plan.carbonChords != lastAppliedChords else { return }
+        lastAppliedChords = plan.carbonChords
         carbonTrigger.update(plan.carbonChords.map { spec in
             CarbonHotkeyTrigger.Chord(
                 keyCode: spec.keyCode,
@@ -1413,6 +1493,9 @@ final class SwitcherController: SwitcherViewDelegate {
         visibleReleaseBackstop?.invalidate()
         visibleReleaseBackstop = nil
         carbonTrigger.uninstall()
+        // `uninstall` drops every registration; clear the change-guard cache so an
+        // identical plan re-registers if the controller is ever re-applied.
+        lastAppliedChords = []
         if !disabledSymbolicKeys.isEmpty {
             PrivateAPI.setNativeCommandTabEnabled(true, disabledSymbolicKeys)
             disabledSymbolicKeys = []
@@ -1563,6 +1646,20 @@ final class SwitcherController: SwitcherViewDelegate {
             if newValue == .idle {
                 activeScope = nil
                 scopeFrontPid = nil
+                // Drop the per-shortcut override (#74) so the next plain ⌘Tab
+                // resolves the global config/appearance, not the last shortcut's.
+                activeFilterConfig = nil
+                effective = .defaults
+                // Restore the apps profile's in-panel action keys (#5) on close, so
+                // an open path that bypasses `resolveActiveOptions` (the experimental
+                // gesture trigger, which opens the apps switcher) uses the right
+                // profile's keys instead of the last shortcut's. Change-guarded.
+                activeTarget = .switchApps
+                pushPanelKeyBindings()
+                // Bound the post-SEI force-close window to the panel that was open
+                // across the flap, so a fresh panel opened later isn't force-closed
+                // by a stale stamp (issue #16). A continuing flap re-stamps anyway.
+                lastSecureInputClearedAt = nil
             }
             // Under Secure Event Input the in-panel nav chords are registered only
             // while the panel is open, so re-sync on the open⇄close edge. Gated on
@@ -1573,13 +1670,30 @@ final class SwitcherController: SwitcherViewDelegate {
         }
     }
 
+    /// Resolve the firing shortcut's per-shortcut override (#74) into the two
+    /// per-reveal snapshots — `activeFilterConfig` (behavioral, threaded into the
+    /// off-main catalog filter) and `effective` (appearance + reveal-time
+    /// behavioral). Called once per trigger, before the reveal is scheduled. With
+    /// no override, `activeFilterConfig` stays nil and `effective` resolves to the
+    /// globals, so the common path is unchanged.
+    private func resolveActiveOptions(for target: SwitchTarget) {
+        let override = Preferences.shared.override(for: target)
+        activeFilterConfig = override.isEmpty ? nil : CatalogFilter.overlay(CatalogFilter.config(), override)
+        effective = Preferences.shared.effectiveSettings(for: override)
+        activeTarget = target
+        // Apply this profile's in-panel action keys (#5) for the reveal; the
+        // change-guard skips the tap write when the map is unchanged.
+        pushPanelKeyBindings(for: target)
+    }
+
     /// Open the switcher already filtered to `scope` (#3). Driven by a user
     /// scoped-shortcut via `ScopedSwitch.onTrigger`. Opens sticky (like a
     /// gesture/stay-open open) so releasing the shortcut's own modifier doesn't
     /// commit — the user steps with Tab/arrows/scroll and commits with Return or
     /// a click, or dismisses with Esc. Ignored if the switcher is already open.
-    func openScoped(_ scope: SwitchScope) {
+    func openScoped(id: Int, scope: SwitchScope) {
         guard phase == .idle else { return }
+        resolveActiveOptions(for: .scoped(id))
         mru.syncFrontmost()
         cache.scheduleFullRefresh()
         let selfPid = getpid()
@@ -1591,7 +1705,7 @@ final class SwitcherController: SwitcherViewDelegate {
             scopeFrontPid = nil
         }
         activeScope = scope
-        primedApps = AppCatalog.fastAppList(orderedBy: mru.order)
+        primedApps = AppCatalog.fastAppList(orderedBy: mru.order, filter: activeFilterConfig)
         primedIndex = 0
         primedStepDelta = 0
         // Scoped opens are sticky and never release-to-commit; the bound chord
@@ -1644,7 +1758,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// global toggle is on (that's the whole point of ⌘` — see the user's per-app
     /// vs per-window split). All other scopes (and plain ⌘Tab) collapse.
     private func applyApplicationsOnly(_ rows: [SwitcherRow]) -> [SwitcherRow] {
-        guard Preferences.shared.applicationsOnly, !windowsOnlyMode else { return rows }
+        guard effective.applicationsOnly, !windowsOnlyMode else { return rows }
         switch activeScope {
         case .currentAppWindows, .minimizedOnly:
             return rows
@@ -1661,7 +1775,7 @@ final class SwitcherController: SwitcherViewDelegate {
             isMinimized: false,
             isPlaceholder: true
         )
-        view.configure(rows: [placeholder], labels: [""], selectedIndex: 0, metrics: .baseline, highlightPrefix: "")
+        view.configure(rows: [placeholder], labels: [""], selectedIndex: 0, metrics: .baseline, effective: effective, highlightPrefix: "")
         panel.setFrame(NSRect(x: -20000, y: -20000, width: 200, height: 80), display: false)
         panel.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -1853,7 +1967,7 @@ final class SwitcherController: SwitcherViewDelegate {
     }
 
     private func handleLetter(_ ch: Character) {
-        guard Preferences.shared.letterHintsEnabled else { return }
+        guard effective.letterHintsEnabled else { return }
         guard phase == .visible, !rows.isEmpty, !labels.isEmpty else { return }
 
         let attempt = letterBuffer + String(ch)
@@ -1963,6 +2077,7 @@ final class SwitcherController: SwitcherViewDelegate {
             // synchronously below (the snapshot is sorted later, on the reveal
             // timer), so it can land asynchronously and still order this chord.
             handleFocusChange(pid: front.processIdentifier)
+            resolveActiveOptions(for: .switchWindows)
             windowsOnlyMode = true
             windowsOnlyPid = front.processIdentifier
             windowsOnlyPrimedDelta = delta
@@ -1988,7 +2103,8 @@ final class SwitcherController: SwitcherViewDelegate {
             // reveal() reads an up-to-date cache instead of stale rows that
             // then visibly re-populate after the panel appears.
             cache.scheduleFullRefresh()
-            primedApps = AppCatalog.fastAppList(orderedBy: mru.order)
+            resolveActiveOptions(for: .switchApps)
+            primedApps = AppCatalog.fastAppList(orderedBy: mru.order, filter: activeFilterConfig)
             guard !primedApps.isEmpty else { return }
             if primedApps.count == 1 {
                 primedIndex = 0
@@ -2135,6 +2251,15 @@ final class SwitcherController: SwitcherViewDelegate {
             tabDrillActive: tabDrillActive,
             secureInputActive: secureInputActive
         )
+        // Single source of truth for the tap's weld self-heal gate (issue #16):
+        // this predicate already marks a held-chord release-to-commit panel, and
+        // this method is invoked from every edge that can change it (the `phase`
+        // chokepoint, the `stickyOpen` / `tabDrillActive` didSets, secure-input
+        // transitions), so the tap flag can never miss a mutation site. The only
+        // divergence from the heal predicate (`|| tabDrillActive`) is unobservable
+        // at the gate — drill keyDowns are fully handled and return earlier in the
+        // tap, before the swallow gate is reached.
+        hotkey.setModifierHeldPanel(want)
         if want {
             guard visibleReleaseBackstop == nil else { return }
             let timer = Timer(timeInterval: Self.visibleReleaseBackstopInterval, repeats: true) { [weak self] _ in
@@ -2186,8 +2311,18 @@ final class SwitcherController: SwitcherViewDelegate {
         // the panel out from under a user holding ⌘ and reading it without steering.
         guard let last = lastVisibleActivity else { return }
         let idle = Date().timeIntervalSince(last)
-        if Self.shouldForceCloseStrandedVisible(secureInputActive: secureInputActive, idle: idle) {
-            Log.switcher.error("visible panel stranded \(Int(idle))s with no interaction under secure input — force-closing (issue #16)")
+        // A ⌘-held latch can outlive the SEI→OFF edge, so the force-close also
+        // covers a bounded window after the last flap cleared (issue #16).
+        let withinPostSecure = lastSecureInputClearedAt.map {
+            Date().timeIntervalSince($0) < Self.postSecureLatchWindow
+        } ?? false
+        if Self.shouldForceCloseStrandedVisible(
+            secureInputActive: secureInputActive,
+            withinPostSecureWindow: withinPostSecure,
+            idle: idle
+        ) {
+            let reason = secureInputActive ? "under secure input" : "after a secure-input flap"
+            Log.switcher.error("visible panel stranded \(Int(idle))s with no interaction \(reason) — force-closing (issue #16)")
             // The user has moved on by now; don't yank focus back to the app that
             // was frontmost at open — just dismiss so the tap stops swallowing ⌘W.
             previousFrontmostApp = nil
@@ -2251,7 +2386,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// in `handleScreenParametersChange()`; `refreshDisplay()` re-presents.
     private func applySessionScreen(_ screen: NSScreen) {
         panel.targetScreen = screen
-        currentMetrics = SwitcherMetrics.forScreen(screen, layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
+        currentMetrics = SwitcherMetrics.forScreen(screen, layoutMode: effective.layoutMode, userScale: effective.panelSize.scale, letterHints: effective.letterHintsEnabled, showAppNames: effective.showApplicationNames, showWindowTitles: effective.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: effective.expandBrowserTabsAsWindows && !effective.applicationsOnly)
         refreshDisplay()
     }
 
@@ -2441,7 +2576,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // applies the scope once the real scan lands. nil scope (normal ⌘Tab)
         // leaves rows untouched.
         var sortedRows = applyWindowMRUSort(
-            Log.reveal.withIntervalSignpost("catalog.rows") { cache.rows(orderedBy: mru.order) }
+            Log.reveal.withIntervalSignpost("catalog.rows") { cache.rows(orderedBy: mru.order, filter: activeFilterConfig) }
         )
         let hadCachedRows = !sortedRows.isEmpty
         if let scope = activeScope, hadCachedRows {
@@ -2457,7 +2592,7 @@ final class SwitcherController: SwitcherViewDelegate {
                 // Scoped opens start at the top: the MRU/pid anchors below were
                 // computed pre-scope and don't map onto the narrowed set.
                 index = 0
-            } else if Preferences.shared.sortOrder == .mruWindows {
+            } else if effective.sortOrder == .mruWindows {
                 // Window-level list: step over rows by window recency, not apps.
                 // `primedStepDelta` taps from row 0 (the current window), so a
                 // single forward tap lands on the second-most-recent window.
@@ -2514,7 +2649,7 @@ final class SwitcherController: SwitcherViewDelegate {
             // Window-level mode anchors on the selected *window*; matching by pid
             // would snap a non-first window back to its app's first row. Preserve
             // it by row identity instead. App-grouped modes keep the pid anchor.
-            let inWindowMode = Preferences.shared.sortOrder == .mruWindows
+            let inWindowMode = effective.sortOrder == .mruWindows
             let windowKey = inWindowMode ? selectionKey() : nil
             let selectedPid = rows.indices.contains(index) ? rows[index].pid : targetPid
             // The stepped-to window's element, so a browser window whose AX title
@@ -2545,12 +2680,12 @@ final class SwitcherController: SwitcherViewDelegate {
 
         let sessionScreen = resolveSessionScreen()
         panel.targetScreen = sessionScreen
-        currentMetrics = SwitcherMetrics.forScreen(sessionScreen, layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
-        view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
-        panel.present()
+        currentMetrics = SwitcherMetrics.forScreen(sessionScreen, layoutMode: effective.layoutMode, userScale: effective.panelSize.scale, letterHints: effective.letterHintsEnabled, showAppNames: effective.showApplicationNames, showWindowTitles: effective.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: effective.expandBrowserTabsAsWindows && !effective.applicationsOnly)
+        view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, effective: effective, highlightPrefix: letterBuffer)
+        panel.present(opacity: effective.panelOpacity)
         phase = .visible
         cache.setPanelVisible(true)
-        dockBadgeObserver.start(enabled: Preferences.shared.showUnreadBadges)
+        dockBadgeObserver.start(enabled: effective.showUnreadBadges)
         // Inline browser-tab mode: start scanning the visible browser windows'
         // tabs now so the rows expand as soon as Apple Events answers. Self-
         // guards on the pref; a no-op on the cold (placeholder) branch since
@@ -2562,14 +2697,15 @@ final class SwitcherController: SwitcherViewDelegate {
             // layer (single AX scan, not a duplicate) and re-apply when ready.
             cache.scheduleFullRefresh { [weak self] in
                 guard let self, gen == self.revealGeneration else { return }
-                let fresh = self.cache.rows(orderedBy: self.mru.order)
+                let fresh = self.cache.rows(orderedBy: self.mru.order, filter: self.activeFilterConfig)
                 self.applyFullSnapshot(fresh, anchorPid: targetPid)
             }
         } else {
             // No cache yet — must do an immediate AX scan to populate rows.
             let mruOrder = mru.order
+            let cfg = activeFilterConfig
             DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-                let fresh = AppCatalog.snapshot(orderedBy: mruOrder)
+                let fresh = AppCatalog.snapshot(orderedBy: mruOrder, filter: cfg)
                 DispatchQueue.main.async {
                     guard let self, gen == self.revealGeneration else { return }
                     self.applyFullSnapshot(fresh, anchorPid: targetPid)
@@ -2596,7 +2732,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// snapshot (or no indicators on a cold first reveal) and patches the rest
     /// in within a few ms.
     private func refreshAuxiliaryIndicators() {
-        let wantsBadges = Preferences.shared.showUnreadBadges
+        let wantsBadges = effective.showUnreadBadges
         if !wantsBadges { DockBadgeReader.shared.clear() }
         let scanBadges = wantsBadges && DockBadgeReader.shared.shouldRefresh()
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
@@ -2615,7 +2751,7 @@ final class SwitcherController: SwitcherViewDelegate {
         revealGeneration &+= 1
         let gen = revealGeneration
 
-        let cached = cache.rows(orderedBy: mru.order).filter { $0.pid == pid }
+        let cached = cache.rows(orderedBy: mru.order, filter: activeFilterConfig).filter { $0.pid == pid }
         if !cached.isEmpty {
             guard cached.contains(where: { $0.window != nil }) else { cancel(); return }
             presentWindowsOnly(cached, pid: pid)
@@ -2627,8 +2763,9 @@ final class SwitcherController: SwitcherViewDelegate {
             // through `pickWindowsOnlyTarget` (primed phase); the generation
             // guard drops this stale apply.
             let mruOrder = mru.order
+            let cfg = activeFilterConfig
             DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-                let fresh = AppCatalog.snapshot(orderedBy: mruOrder).filter { $0.pid == pid }
+                let fresh = AppCatalog.snapshot(orderedBy: mruOrder, filter: cfg).filter { $0.pid == pid }
                 DispatchQueue.main.async {
                     guard let self, gen == self.revealGeneration, self.phase == .primed else { return }
                     guard fresh.contains(where: { $0.window != nil }) else { self.cancel(); return }
@@ -2651,18 +2788,18 @@ final class SwitcherController: SwitcherViewDelegate {
 
         let sessionScreen = resolveSessionScreen()
         panel.targetScreen = sessionScreen
-        currentMetrics = SwitcherMetrics.forScreen(sessionScreen, layoutMode: Preferences.shared.switcherLayoutMode, userScale: Preferences.shared.panelSize.scale, letterHints: Preferences.shared.letterHintsEnabled, showAppNames: Preferences.shared.showApplicationNames, showWindowTitles: Preferences.shared.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: Preferences.shared.expandBrowserTabsAsWindows && !Preferences.shared.applicationsOnly)
-        view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, highlightPrefix: letterBuffer)
-        panel.present()
+        currentMetrics = SwitcherMetrics.forScreen(sessionScreen, layoutMode: effective.layoutMode, userScale: effective.panelSize.scale, letterHints: effective.letterHintsEnabled, showAppNames: effective.showApplicationNames, showWindowTitles: effective.showWindowTitleLabel, hoverActionCount: Preferences.shared.enabledHoverActionCount, browserTabsExpanded: effective.expandBrowserTabsAsWindows && !effective.applicationsOnly)
+        view.configure(rows: rows, labels: displayLabels, selectedIndex: index, metrics: currentMetrics, effective: effective, highlightPrefix: letterBuffer)
+        panel.present(opacity: effective.panelOpacity)
         phase = .visible
         cache.setPanelVisible(true)
-        dockBadgeObserver.start(enabled: Preferences.shared.showUnreadBadges)
+        dockBadgeObserver.start(enabled: effective.showUnreadBadges)
     }
 
     private func scheduleWindowsOnlyRefresh(pid: pid_t, gen: UInt64) {
         cache.scheduleFullRefresh { [weak self] in
             guard let self, gen == self.revealGeneration else { return }
-            let fresh = self.cache.rows(orderedBy: self.mru.order).filter { $0.pid == pid }
+            let fresh = self.cache.rows(orderedBy: self.mru.order, filter: self.activeFilterConfig).filter { $0.pid == pid }
             self.applyWindowsOnlySnapshot(fresh)
         }
     }
@@ -2686,7 +2823,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// apps stay at the front and their windows keep recency order within the
     /// pin block (the partition is stable on offset).
     private func applyWindowMRUSort(_ rows: [SwitcherRow]) -> [SwitcherRow] {
-        guard Preferences.shared.sortOrder == .mruWindows else { return rows }
+        guard effective.sortOrder == .mruWindows else { return rows }
         // Re-base onto a frontmost-independent order before the recency sort.
         // The incoming rows are app-MRU ordered, so the *currently active* app's
         // windows lead the list; windows the tracker has never seen would then
@@ -2722,8 +2859,13 @@ final class SwitcherController: SwitcherViewDelegate {
     /// actor like the other hot-path pref reads.
     private var browserTabMRUActive: Bool {
         browserTabMRUEnabled
-            && !Preferences.shared.applicationsOnly
-            && Preferences.shared.sortOrder == .mruWindows
+            // `browserTabMRUEnabled` gates the *feed* on the global pref, but a
+            // per-shortcut override can turn browser-tab expansion off for this
+            // panel; if so the rows aren't expanded, so the order must not be
+            // consumed (would sort plain window rows by the tab timeline).
+            && effective.expandBrowserTabsAsWindows
+            && !effective.applicationsOnly
+            && effective.sortOrder == .mruWindows
     }
 
     /// The feature + tab-expansion are on, so the tab MRU should be *fed* (observer,
@@ -2912,7 +3054,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// `configure`, so no row-model change is needed. Generation- and
     /// visibility-guarded so a scan landing after the panel closed is dropped.
     private func scheduleVisibleBadgeRefresh() {
-        guard phase == .visible, Preferences.shared.showUnreadBadges else { return }
+        guard phase == .visible, effective.showUnreadBadges else { return }
         let gen = revealGeneration
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             let badges = DockBadgeReader.snapshot()
@@ -2937,8 +3079,8 @@ final class SwitcherController: SwitcherViewDelegate {
     private func expandBrowserTabs(_ source: [SwitcherRow]) -> [SwitcherRow] {
         // Applications-only mode collapses to one row per app; re-expanding a
         // browser into per-tab rows would defeat it, so leave the rows untouched.
-        guard Preferences.shared.expandBrowserTabsAsWindows,
-              !Preferences.shared.applicationsOnly else { return source }
+        guard effective.expandBrowserTabsAsWindows,
+              !effective.applicationsOnly else { return source }
         var out: [SwitcherRow] = []
         out.reserveCapacity(source.count)
         for row in source {
@@ -2993,7 +3135,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// `forcedBrowserScanMinInterval` so page-load title churn can't spam
     /// osascript. `onDone` runs on the main actor after the cache is updated.
     private func scanBrowserTabs(rows: [SwitcherRow], force: Bool, onDone: (() -> Void)? = nil) {
-        guard Preferences.shared.expandBrowserTabsAsWindows else { return }
+        guard effective.expandBrowserTabsAsWindows else { return }
         let now = ProcessInfo.processInfo.systemUptime
         if force, now - lastForcedBrowserScanAt < Self.forcedBrowserScanMinInterval { return }
 
@@ -3097,8 +3239,8 @@ final class SwitcherController: SwitcherViewDelegate {
     private func scheduleBrowserTabExpansion(force: Bool = false) {
         // Mirror expandBrowserTabs' applications-only guard: with it on, the
         // expansion no-ops, so spawning the osascript scan is pure waste.
-        guard Preferences.shared.expandBrowserTabsAsWindows,
-              !Preferences.shared.applicationsOnly, phase == .visible else { return }
+        guard effective.expandBrowserTabsAsWindows,
+              !effective.applicationsOnly, phase == .visible else { return }
         scanBrowserTabs(rows: collapsedBrowserSource(), force: force) { [weak self] in
             self?.reExpandBrowserTabs()
         }
@@ -3112,9 +3254,9 @@ final class SwitcherController: SwitcherViewDelegate {
     /// panel is already visible by the time it lands (otherwise `reveal()` picks
     /// up the now-warm cache itself).
     private func prewarmBrowserTabs() {
-        guard Preferences.shared.expandBrowserTabsAsWindows,
-              !Preferences.shared.applicationsOnly else { return }
-        scanBrowserTabs(rows: cache.rows(orderedBy: mru.order), force: false) { [weak self] in
+        guard effective.expandBrowserTabsAsWindows,
+              !effective.applicationsOnly else { return }
+        scanBrowserTabs(rows: cache.rows(orderedBy: mru.order, filter: activeFilterConfig), force: false) { [weak self] in
             self?.reExpandBrowserTabs()
         }
     }
@@ -3163,7 +3305,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // must never trigger a synchronous cross-process AppCatalog.snapshot().
         // On a cold cache (the brief boot/AX-regrant window) it returns nil and
         // the caller falls back to a cheap, main-safe app activation.
-        var candidates = cache.rows(orderedBy: mru.order).filter { $0.pid == pid && $0.window != nil }
+        var candidates = cache.rows(orderedBy: mru.order, filter: activeFilterConfig).filter { $0.pid == pid && $0.window != nil }
         guard !candidates.isEmpty else { return nil }
         candidates = windowMRU.sortRows(candidates, forPid: pid)
         let count = candidates.count
@@ -3182,7 +3324,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// cheap, main-safe `activateApp`.
     private func primedAppTargetRow(for app: NSRunningApplication) -> SwitcherRow? {
         let pid = app.processIdentifier
-        return cache.rows(orderedBy: mru.order).first(where: { $0.pid == pid && $0.window != nil })
+        return cache.rows(orderedBy: mru.order, filter: activeFilterConfig).first(where: { $0.pid == pid && $0.window != nil })
     }
 
     /// The window row a `.mruWindows` fast tap-release should activate: the
@@ -3196,7 +3338,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // row a fast tap activates is byte-identical to the one a held-open panel
         // would select (the held panel collapses after the sort — see `reveal()`).
         let sorted = Log.reveal.withIntervalSignpost("primed.windowMRU") {
-            applyApplicationsOnly(applyWindowMRUSort(cache.rows(orderedBy: mru.order)))
+            applyApplicationsOnly(applyWindowMRUSort(cache.rows(orderedBy: mru.order, filter: activeFilterConfig)))
         }
         guard !sorted.isEmpty else { return nil }
         let idx = ((primedStepDelta % sorted.count) + sorted.count) % sorted.count
@@ -3209,7 +3351,7 @@ final class SwitcherController: SwitcherViewDelegate {
     /// be a browser-tab row, so the caller routes it through `activation(for:)`.
     private func primedBrowserTabMRUTargetRow() -> SwitcherRow? {
         let sorted = Log.reveal.withIntervalSignpost("primed.tabMRU") {
-            applyBrowserTabMRU(expandBrowserTabs(applyApplicationsOnly(applyWindowMRUSort(cache.rows(orderedBy: mru.order)))))
+            applyBrowserTabMRU(expandBrowserTabs(applyApplicationsOnly(applyWindowMRUSort(cache.rows(orderedBy: mru.order, filter: activeFilterConfig)))))
         }
         guard !sorted.isEmpty else { return nil }
         let idx = ((primedStepDelta % sorted.count) + sorted.count) % sorted.count
@@ -3294,7 +3436,7 @@ final class SwitcherController: SwitcherViewDelegate {
                 // switcher would have selected, stepped by unified tab recency, so a
                 // quick ⌘⇥ returns to the previous *tab* exactly like the panel.
                 pendingActivation = activation(for: row, instantSpace: instantSpace)
-            } else if Preferences.shared.sortOrder == .mruWindows,
+            } else if effective.sortOrder == .mruWindows,
                       let row = primedWindowMRUTargetRow() {
                 // Window-level fast tap-release: activate the window the visible
                 // switcher would have selected (stepped by recency, not by app),
@@ -3948,7 +4090,7 @@ final class SwitcherController: SwitcherViewDelegate {
         // Checked before the demotion below so the app isn't inserted as a
         // windowless row only to be torn down a line later.
         let closedWindow = row.window
-        let anyWindowRemains = cache.rows(orderedBy: mru.order).contains { r in
+        let anyWindowRemains = cache.rows(orderedBy: mru.order, filter: activeFilterConfig).contains { r in
             guard let w = r.window else { return false }
             if let cw = closedWindow { return !CFEqual(w, cw) }
             return true
@@ -3984,7 +4126,9 @@ final class SwitcherController: SwitcherViewDelegate {
                isMinimized: false,
                appHidden: closedApp.isHidden,
                hasWindow: false,
-               CatalogFilter.config()
+               // Match the active per-shortcut override (if any), like the row
+               // reads above and the 250ms refresh below — not the global config.
+               activeFilterConfig ?? CatalogFilter.config()
            ) {
             baseRows.insert(
                 SwitcherRow(
@@ -4062,7 +4206,7 @@ final class SwitcherController: SwitcherViewDelegate {
             guard gen == revealGeneration, phase == .visible else { return }
             cache.scheduleFullRefresh { [weak self] in
                 guard let self, gen == self.revealGeneration, self.phase == .visible else { return }
-                let fresh = self.filterQuitting(self.filterClosedTombstones(self.cache.rows(orderedBy: self.mru.order)))
+                let fresh = self.filterQuitting(self.filterClosedTombstones(self.cache.rows(orderedBy: self.mru.order, filter: self.activeFilterConfig)))
                 // Windows-only mode (⌘`) is scoped to a single app's windows. A
                 // post-action refresh must stay filtered to `windowsOnlyPid` —
                 // otherwise it rebuilds from the full multi-app catalog and the
@@ -4397,13 +4541,14 @@ final class SwitcherController: SwitcherViewDelegate {
             labels: displayLabels,
             selectedIndex: index,
             metrics: currentMetrics,
+            effective: effective,
             highlightPrefix: searchActive ? "" : letterBuffer,
             searchActive: searchActive,
             searchQuery: searchQuery,
             tabStripTitles: tabDrillActive ? tabTitles : tabDrillHint.map { [$0] },
             tabStripSelectedIndex: tabIndex
         )
-        panel.present()
+        panel.present(opacity: effective.panelOpacity)
     }
 
     // MARK: - Fuzzy search

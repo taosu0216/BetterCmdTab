@@ -215,6 +215,204 @@ enum SwitchScope: String, CaseIterable {
     }
 }
 
+/// Per-shortcut override of the Space-scope behavioral option (#74). Tri-state so
+/// a shortcut can force "this Space only", force "all Spaces", or inherit the
+/// global `currentSpaceOnly` toggle. Stored as a raw string on `ShortcutOverride`.
+enum SpaceScopeOverride: String, CaseIterable, Sendable {
+    /// Use the global `currentSpaceOnly` preference. (Default.)
+    case inherit
+    /// Force the shortcut to only show windows on the current Space.
+    case currentSpace
+    /// Force the shortcut to show windows across all Spaces.
+    case allSpaces
+
+    /// The concrete `currentSpaceOnly` value, or `nil` when inheriting the global.
+    var resolvedCurrentSpaceOnly: Bool? {
+        switch self {
+        case .inherit: return nil
+        case .currentSpace: return true
+        case .allSpaces: return false
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .inherit: return String(localized: "Use global default")
+        case .currentSpace: return String(localized: "This Space only")
+        case .allSpaces: return String(localized: "All Spaces")
+        }
+    }
+}
+
+/// Identifies which panel-opening shortcut a `ShortcutOverride` belongs to (#74).
+/// The `storageKey` strings are the persisted contract — never rename them.
+enum SwitchTarget: Hashable, Sendable {
+    case switchApps
+    case switchWindows
+    /// Scoped-shortcut entry, keyed by its stable `ScopedShortcut.id` (monotonic,
+    /// never reused — not a positional slot, so it survives add/remove/reorder).
+    case scoped(Int)
+
+    var storageKey: String {
+        switch self {
+        case .switchApps: return "switchApps"
+        case .switchWindows: return "switchWindows"
+        case .scoped(let i): return "scoped.\(i)"
+        }
+    }
+
+    /// Parse a stored key back into a target. Any non-negative scoped id is valid
+    /// (the list is dynamic); a negative/malformed id is rejected.
+    init?(storageKey: String) {
+        switch storageKey {
+        case "switchApps": self = .switchApps
+        case "switchWindows": self = .switchWindows
+        default:
+            guard storageKey.hasPrefix("scoped."),
+                  let i = Int(storageKey.dropFirst("scoped.".count)),
+                  i >= 0 else { return nil }
+            self = .scoped(i)
+        }
+    }
+}
+
+/// One user-created scoped-switch shortcut (#74): a dynamic, add/remove list
+/// entry (AltTab-style) replacing the old fixed 3 slots. `id` is stable and
+/// monotonic — it keys the entry's per-shortcut override (`SwitchTarget.scoped`)
+/// and its recorded trigger, so removing an entry never disturbs the others.
+/// `shortcutName` is the `BetterShortcuts.Name` raw value the trigger is recorded
+/// under (migrated entries keep the legacy `scopedSwitch1…` names; new entries
+/// use `scopedSwitch.<id>`). Persisted as a plist `[String: String]`.
+struct ScopedShortcut: Equatable, Sendable {
+    var id: Int
+    var scope: SwitchScope
+    var shortcutName: String
+
+    init(id: Int, scope: SwitchScope = .allAppsAllSpaces, shortcutName: String) {
+        self.id = id
+        self.scope = scope
+        self.shortcutName = shortcutName
+    }
+
+    var dictionary: [String: String] {
+        ["id": String(id), "scope": scope.rawValue, "name": shortcutName]
+    }
+
+    init?(dictionary: [String: String]) {
+        guard let idStr = dictionary["id"], let id = Int(idStr), id >= 0,
+              let name = dictionary["name"], !name.isEmpty else { return nil }
+        self.id = id
+        self.scope = dictionary["scope"].flatMap(SwitchScope.init(rawValue:)) ?? .allAppsAllSpaces
+        self.shortcutName = name
+    }
+}
+
+/// A per-shortcut override of the switcher's behavioral + appearance options
+/// (#74). Every field is optional (`spaceScope` uses its own `.inherit` case):
+/// an unset field means "inherit the global preference", so an all-unset
+/// override is a no-op. Persisted as a plist `[String: String]` dictionary —
+/// like `AppException` — so it survives the generic `Switcher.*` settings
+/// export/import (a JSON `Data` blob would be dropped by the portability gates).
+struct ShortcutOverride: Equatable, Sendable {
+    // Behavioral (resolved into `CatalogFilter.Config` + reveal-time reads).
+    var spaceScope: SpaceScopeOverride = .inherit
+    var showMinimized: Bool?
+    var showHidden: Bool?
+    var showWindowless: Bool?
+    var sortOrder: SwitcherSortOrder?
+    var applicationsOnly: Bool?
+    var expandBrowserTabsAsWindows: Bool?
+    // Appearance (resolved into `EffectiveSettings`).
+    var layoutMode: SwitcherLayoutMode?
+    var panelSize: PanelSize?
+    var gridMaxColumns: Int?
+    var accentChoice: SwitcherAccent?
+    var customAccentHex: String?
+    var panelOpacity: Int?
+    var panelCornerRadius: Int?
+    var backdropMaterial: BackdropMaterial?
+    var showWindowTitleLabel: Bool?
+    var previewTitleAlignment: PreviewTitleAlignment?
+    var boldSelectedLabel: Bool?
+    var showApplicationNames: Bool?
+    var showUnreadBadges: Bool?
+    var letterHintsEnabled: Bool?
+
+    init() {}
+
+    /// True when no field overrides anything — resolves identically to the
+    /// global preferences, so the override can be dropped from storage.
+    var isEmpty: Bool {
+        spaceScope == .inherit && showMinimized == nil && showHidden == nil
+            && showWindowless == nil && sortOrder == nil && applicationsOnly == nil
+            && expandBrowserTabsAsWindows == nil && layoutMode == nil && panelSize == nil
+            && gridMaxColumns == nil && accentChoice == nil && customAccentHex == nil
+            && panelOpacity == nil && panelCornerRadius == nil && backdropMaterial == nil
+            && showWindowTitleLabel == nil && previewTitleAlignment == nil
+            && boldSelectedLabel == nil && showApplicationNames == nil
+            && showUnreadBadges == nil && letterHintsEnabled == nil
+    }
+
+    /// Plist-friendly representation: only *set* fields are emitted, so an absent
+    /// key reads back as "inherit". Bools become `"true"`/`"false"`, ints their
+    /// decimal string, enums their raw value.
+    var dictionary: [String: String] {
+        var d: [String: String] = [:]
+        func put(_ key: String, _ value: Bool?) { if let value { d[key] = value ? "true" : "false" } }
+        func put(_ key: String, _ value: Int?) { if let value { d[key] = String(value) } }
+        if spaceScope != .inherit { d["spaceScope"] = spaceScope.rawValue }
+        put("showMinimized", showMinimized)
+        put("showHidden", showHidden)
+        put("showWindowless", showWindowless)
+        if let sortOrder { d["sortOrder"] = sortOrder.rawValue }
+        put("applicationsOnly", applicationsOnly)
+        put("expandBrowserTabsAsWindows", expandBrowserTabsAsWindows)
+        if let layoutMode { d["layoutMode"] = layoutMode.rawValue }
+        if let panelSize { d["panelSize"] = panelSize.rawValue }
+        put("gridMaxColumns", gridMaxColumns)
+        if let accentChoice { d["accentChoice"] = accentChoice.rawValue }
+        if let customAccentHex { d["customAccentHex"] = customAccentHex }
+        put("panelOpacity", panelOpacity)
+        put("panelCornerRadius", panelCornerRadius)
+        if let backdropMaterial { d["backdropMaterial"] = backdropMaterial.rawValue }
+        put("showWindowTitleLabel", showWindowTitleLabel)
+        if let previewTitleAlignment { d["previewTitleAlignment"] = previewTitleAlignment.rawValue }
+        put("boldSelectedLabel", boldSelectedLabel)
+        put("showApplicationNames", showApplicationNames)
+        put("showUnreadBadges", showUnreadBadges)
+        put("letterHintsEnabled", letterHintsEnabled)
+        return d
+    }
+
+    /// Parse one stored dictionary. Unknown keys and unparseable values are
+    /// ignored (they read back as "inherit"), so a partial/forward-version entry
+    /// degrades gracefully instead of being dropped.
+    init?(dictionary: [String: String]) {
+        func bool(_ key: String) -> Bool? { dictionary[key].map { $0 == "true" } }
+        spaceScope = dictionary["spaceScope"].flatMap(SpaceScopeOverride.init(rawValue:)) ?? .inherit
+        showMinimized = bool("showMinimized")
+        showHidden = bool("showHidden")
+        showWindowless = bool("showWindowless")
+        sortOrder = dictionary["sortOrder"].flatMap(SwitcherSortOrder.init(rawValue:))
+        applicationsOnly = bool("applicationsOnly")
+        expandBrowserTabsAsWindows = bool("expandBrowserTabsAsWindows")
+        layoutMode = dictionary["layoutMode"].flatMap(SwitcherLayoutMode.init(rawValue:))
+        panelSize = dictionary["panelSize"].flatMap(PanelSize.init(rawValue:))
+        gridMaxColumns = dictionary["gridMaxColumns"].flatMap(Int.init)
+        accentChoice = dictionary["accentChoice"].flatMap(SwitcherAccent.init(rawValue:))
+        customAccentHex = dictionary["customAccentHex"]
+        panelOpacity = dictionary["panelOpacity"].flatMap(Int.init)
+        panelCornerRadius = dictionary["panelCornerRadius"].flatMap(Int.init)
+        backdropMaterial = dictionary["backdropMaterial"].flatMap(BackdropMaterial.init(rawValue:))
+        showWindowTitleLabel = bool("showWindowTitleLabel")
+        previewTitleAlignment = dictionary["previewTitleAlignment"].flatMap(PreviewTitleAlignment.init(rawValue:))
+        boldSelectedLabel = bool("boldSelectedLabel")
+        showApplicationNames = bool("showApplicationNames")
+        showUnreadBadges = bool("showUnreadBadges")
+        letterHintsEnabled = bool("letterHintsEnabled")
+    }
+}
+
 extension NSColor {
     /// Parses `#RRGGBB` / `RRGGBB` (and the 8-digit `#RRGGBBAA` form). Returns
     /// `nil` for malformed input so callers can fall back to a default.
@@ -409,7 +607,7 @@ final class Preferences: ObservableObject {
     /// shortcut to a `SwitchScope` — triggering it opens the switcher already
     /// filtered to that subset (all windows / current Space / current app /
     /// minimized).
-    static let scopedShortcutSlotCount = 3
+    nonisolated static let scopedShortcutSlotCount = 3
 
     // Internal (not private): `CatalogFilter` reads the catalog-related keys
     // directly from `UserDefaults` off the main actor, so the key strings must
@@ -482,6 +680,17 @@ final class Preferences: ObservableObject {
         static let currentSpaceOnly = "Switcher.currentSpaceOnly"
         static let directActivationBindings = "Switcher.directActivationBindings"
         static let scopedShortcutScopes = "Switcher.scopedShortcutScopes"
+        /// The dynamic scoped-switch list (#74), as `[[String: String]]` of
+        /// `ScopedShortcut.dictionary`. Supersedes the fixed `scopedShortcutScopes`
+        /// array; migrated from it on first launch of the new build.
+        static let scopedShortcutList = "Switcher.scopedShortcutList"
+        /// Monotonic counter for allocating stable `ScopedShortcut.id`s.
+        static let nextScopedShortcutID = "Switcher.nextScopedShortcutID"
+        /// Per-shortcut behavioral + appearance overrides (#74), keyed by
+        /// `SwitchTarget.storageKey`. Stored as `[[String: String]]` (each entry =
+        /// a `ShortcutOverride.dictionary` plus a `"target"` key) so the generic
+        /// `Switcher.*` settings export/import carries it untouched.
+        static let shortcutOverrides = "Switcher.shortcutOverrides"
         static let mouseHoverSelectionEnabled = "Switcher.mouseHoverSelectionEnabled"
         static let mouseClickSelectionEnabled = "Switcher.mouseClickSelectionEnabled"
         static let hoverActionsEnabled = "Switcher.hoverActionsEnabled"
@@ -1056,6 +1265,128 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// The dynamic, user-managed scoped-switch list (#74). Add/remove entries from
+    /// the Shortcuts pane; each carries a stable `id`, a `scope`, and the
+    /// `BetterShortcuts.Name` its trigger is recorded under. Persisted as
+    /// `[[String: String]]` so the generic settings export/import carries it.
+    @Published var scopedShortcuts: [ScopedShortcut] {
+        didSet {
+            guard oldValue != scopedShortcuts else { return }
+            UserDefaults.standard.set(scopedShortcuts.map(\.dictionary), forKey: Keys.scopedShortcutList)
+        }
+    }
+
+    /// Monotonic id allocator for `scopedShortcuts`. Never decreases, so a removed
+    /// entry's id is never reused (keeps stale recorded triggers/overrides inert).
+    @Published var nextScopedShortcutID: Int {
+        didSet {
+            guard oldValue != nextScopedShortcutID else { return }
+            UserDefaults.standard.set(nextScopedShortcutID, forKey: Keys.nextScopedShortcutID)
+        }
+    }
+
+    /// Append a new scoped-switch entry with a fresh id and the default scope, and
+    /// return it. The caller wires its BetterShortcuts handler + UI row.
+    @discardableResult
+    func appendScopedShortcut(scope: SwitchScope = .allAppsAllSpaces) -> ScopedShortcut {
+        let id = nextScopedShortcutID
+        nextScopedShortcutID = id + 1
+        let entry = ScopedShortcut(id: id, scope: scope, shortcutName: "scopedSwitch.\(id)")
+        scopedShortcuts.append(entry)
+        return entry
+    }
+
+    /// Remove the entry with `id`, returning its `shortcutName` so the caller can
+    /// clear the recorded trigger + override. No-op (nil) if the id is unknown.
+    @discardableResult
+    func removeScopedShortcut(id: Int) -> String? {
+        guard let i = scopedShortcuts.firstIndex(where: { $0.id == id }) else { return nil }
+        let name = scopedShortcuts[i].shortcutName
+        scopedShortcuts.remove(at: i)
+        setOverride(ShortcutOverride(), for: .scoped(id))
+        return name
+    }
+
+    /// Update the scope of the entry with `id`.
+    func setScope(_ scope: SwitchScope, forScopedID id: Int) {
+        guard let i = scopedShortcuts.firstIndex(where: { $0.id == id }), scopedShortcuts[i].scope != scope else { return }
+        scopedShortcuts[i].scope = scope
+    }
+
+    static func decodeScopedShortcuts(_ raw: [[String: String]]?) -> [ScopedShortcut] {
+        (raw ?? []).compactMap(ScopedShortcut.init(dictionary:))
+    }
+
+    /// Build the initial list from the legacy fixed `scopedShortcutScopes` (the
+    /// pre-#74 3 slots): keep only slots the user actually used — a recorded
+    /// trigger or a non-default scope — so a clean install starts empty instead of
+    /// with three blank rows. Names stay `scopedSwitch1…3` so existing recorded
+    /// triggers carry over untouched.
+    static func migrateScopedShortcuts(legacyScopes: [SwitchScope]) -> [ScopedShortcut] {
+        var out: [ScopedShortcut] = []
+        for (i, scope) in legacyScopes.enumerated() {
+            let name = "scopedSwitch\(i + 1)"
+            let hasTrigger = UserDefaults.standard.object(forKey: "BetterShortcuts_\(name)") != nil
+                || UserDefaults.standard.object(forKey: "KeyboardShortcuts_\(name)") != nil
+            guard hasTrigger || scope != .allAppsAllSpaces else { continue }
+            out.append(ScopedShortcut(id: i, scope: scope, shortcutName: name))
+        }
+        return out
+    }
+
+    /// Per-shortcut behavioral + appearance overrides (#74), keyed by
+    /// `SwitchTarget.storageKey`. An absent key means the shortcut inherits the
+    /// global preferences; empty overrides are never stored. Read on the main
+    /// actor when a trigger fires (`SwitcherController.resolveActiveOptions`).
+    @Published var shortcutOverrides: [String: ShortcutOverride] {
+        didSet {
+            guard oldValue != shortcutOverrides else { return }
+            UserDefaults.standard.set(Self.encodeShortcutOverrides(shortcutOverrides), forKey: Keys.shortcutOverrides)
+        }
+    }
+
+    /// The override for `target`, or an empty (all-inherit) override if none.
+    func override(for target: SwitchTarget) -> ShortcutOverride {
+        shortcutOverrides[target.storageKey] ?? ShortcutOverride()
+    }
+
+    /// Set or clear a target's override. An empty override removes the key so the
+    /// shortcut falls back to the global preferences.
+    func setOverride(_ override: ShortcutOverride, for target: SwitchTarget) {
+        if override.isEmpty {
+            shortcutOverrides.removeValue(forKey: target.storageKey)
+        } else {
+            shortcutOverrides[target.storageKey] = override
+        }
+    }
+
+    /// Encode to the plist `[[String: String]]` form: drop empty overrides, stamp
+    /// each with its `"target"` key, sorted for deterministic output.
+    static func encodeShortcutOverrides(_ map: [String: ShortcutOverride]) -> [[String: String]] {
+        map.filter { !$0.value.isEmpty }
+            .sorted { $0.key < $1.key }
+            .map { key, override in
+                var d = override.dictionary
+                d["target"] = key
+                return d
+            }
+    }
+
+    /// Decode the stored `[[String: String]]` form. Entries with an unknown
+    /// `target`, or that resolve to an empty override, are dropped.
+    static func decodeShortcutOverrides(_ raw: [[String: String]]?) -> [String: ShortcutOverride] {
+        var out: [String: ShortcutOverride] = [:]
+        for entry in raw ?? [] {
+            // Re-key by the canonical `storageKey`: a hand-edited/corrupt import
+            // could carry a non-canonical-but-valid target (e.g. "scoped.007"),
+            // which every consumer looks up as "scoped.7" and would otherwise miss.
+            guard let key = entry["target"], let target = SwitchTarget(storageKey: key),
+                  let override = ShortcutOverride(dictionary: entry), !override.isEmpty else { continue }
+            out[target.storageKey] = override
+        }
+        return out
+    }
+
     // In-panel action keys (#5) and window-management chords (#7) are
     // BetterShortcuts names now (`BetterShortcuts.Name.panelActionKeys` /
     // `.windowMgmt`); the package owns their recording + persistence.
@@ -1301,7 +1632,31 @@ final class Preferences: ObservableObject {
         self.backdropMaterial = materialRaw.flatMap(BackdropMaterial.init(rawValue:)) ?? .hud
         self.currentSpaceOnly = defaults.object(forKey: Keys.currentSpaceOnly) as? Bool ?? false
         self.directActivationBindings = Self.normalizeBindings(defaults.stringArray(forKey: Keys.directActivationBindings) ?? [])
-        self.scopedShortcutScopes = Self.loadScopes(defaults.stringArray(forKey: Keys.scopedShortcutScopes))
+        let legacyScopes = Self.loadScopes(defaults.stringArray(forKey: Keys.scopedShortcutScopes))
+        self.scopedShortcutScopes = legacyScopes
+        // Dynamic scoped list (#74): use the stored list if present, else migrate
+        // once from the legacy fixed slots.
+        let storedList = defaults.array(forKey: Keys.scopedShortcutList) as? [[String: String]]
+        let migrated: [ScopedShortcut]
+        if let storedList {
+            migrated = Self.decodeScopedShortcuts(storedList)
+        } else {
+            migrated = Self.migrateScopedShortcuts(legacyScopes: legacyScopes)
+        }
+        self.scopedShortcuts = migrated
+        let storedNextID = defaults.object(forKey: Keys.nextScopedShortcutID) as? Int
+        let resolvedNextID = max(storedNextID ?? 0, (migrated.map(\.id).max() ?? -1) + 1)
+        self.nextScopedShortcutID = resolvedNextID
+        // `didSet` doesn't fire for assignments inside init, so a freshly migrated
+        // list would never reach UserDefaults until the user first edits it —
+        // leaving the authoritative key absent (and missing from settings export,
+        // forcing a lossy re-migration on import). Persist it once here so the
+        // dynamic list is the source of truth immediately after an upgrade.
+        if storedList == nil {
+            defaults.set(migrated.map(\.dictionary), forKey: Keys.scopedShortcutList)
+            defaults.set(resolvedNextID, forKey: Keys.nextScopedShortcutID)
+        }
+        self.shortcutOverrides = Self.decodeShortcutOverrides(defaults.array(forKey: Keys.shortcutOverrides) as? [[String: String]])
         self.mouseHoverSelectionEnabled = defaults.object(forKey: Keys.mouseHoverSelectionEnabled) as? Bool ?? true
         self.mouseClickSelectionEnabled = defaults.object(forKey: Keys.mouseClickSelectionEnabled) as? Bool ?? true
         self.hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
@@ -1387,7 +1742,15 @@ final class Preferences: ObservableObject {
         backdropMaterial = defaults.string(forKey: Keys.backdropMaterial).flatMap(BackdropMaterial.init(rawValue:)) ?? .hud
         currentSpaceOnly = defaults.object(forKey: Keys.currentSpaceOnly) as? Bool ?? false
         directActivationBindings = Self.normalizeBindings(defaults.stringArray(forKey: Keys.directActivationBindings) ?? [])
-        scopedShortcutScopes = Self.loadScopes(defaults.stringArray(forKey: Keys.scopedShortcutScopes))
+        let reloadedScopes = Self.loadScopes(defaults.stringArray(forKey: Keys.scopedShortcutScopes))
+        scopedShortcutScopes = reloadedScopes
+        if let raw = defaults.array(forKey: Keys.scopedShortcutList) as? [[String: String]] {
+            scopedShortcuts = Self.decodeScopedShortcuts(raw)
+        } else {
+            scopedShortcuts = Self.migrateScopedShortcuts(legacyScopes: reloadedScopes)
+        }
+        nextScopedShortcutID = max(defaults.object(forKey: Keys.nextScopedShortcutID) as? Int ?? 0, (scopedShortcuts.map(\.id).max() ?? -1) + 1)
+        shortcutOverrides = Self.decodeShortcutOverrides(defaults.array(forKey: Keys.shortcutOverrides) as? [[String: String]])
 
         hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
         hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? true
