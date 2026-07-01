@@ -1,4 +1,5 @@
 import Testing
+import CoreGraphics
 @testable import BetterCmdTab
 
 /// Pure-logic coverage for the h/j/k/l → nav event mapping that the hotkey tap
@@ -90,5 +91,31 @@ struct HotkeyTapVimNavigationTests {
 
         tap.setVimNavigationEnabled(false)
         #expect(pushed?.isDisjoint(with: ["j", "k", "l"]) == true)
+    }
+
+    /// The modifier gate must be relative to the *configured* trigger
+    /// modifier, not hardcoded to ⌘ (issue #71: an ⌥Tab trigger holds ⌥ the
+    /// whole time the panel is open, which used to kill h/j/k/l entirely).
+    @Test func triggerModifierDoesNotBlockVimNav() {
+        // Default ⌘Tab trigger: held ⌘ passes, anything extra blocks.
+        #expect(HotkeyTap.onlyTriggerModifiersHeld(
+            .maskCommand, heldTriggerModifiers: .maskCommand))
+        #expect(!HotkeyTap.onlyTriggerModifiersHeld(
+            [.maskCommand, .maskShift], heldTriggerModifiers: .maskCommand))
+        #expect(!HotkeyTap.onlyTriggerModifiersHeld(
+            [.maskCommand, .maskAlternate], heldTriggerModifiers: .maskCommand))
+        // ⌥Tab trigger (issue #71): held ⌥ passes, ⌥ + extra blocks.
+        #expect(HotkeyTap.onlyTriggerModifiersHeld(
+            .maskAlternate, heldTriggerModifiers: .maskAlternate))
+        #expect(!HotkeyTap.onlyTriggerModifiersHeld(
+            [.maskAlternate, .maskControl], heldTriggerModifiers: .maskAlternate))
+        // Sticky/stay-open panel with no trigger modifier down: bare keys only.
+        #expect(HotkeyTap.onlyTriggerModifiersHeld([], heldTriggerModifiers: []))
+        #expect(!HotkeyTap.onlyTriggerModifiersHeld(
+            .maskShift, heldTriggerModifiers: []))
+        // Raw event flags carry system bits (fn etc.) that must never affect
+        // the comparison.
+        #expect(HotkeyTap.onlyTriggerModifiersHeld(
+            [.maskAlternate, .maskSecondaryFn], heldTriggerModifiers: .maskAlternate))
     }
 }

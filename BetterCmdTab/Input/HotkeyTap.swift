@@ -280,6 +280,20 @@ final class HotkeyTap {
         let wanted = configured.intersection(triggerComparableMask)
         return held == wanted || held == wanted.union(.maskShift)
     }
+
+    /// Vim-nav modifier gate: true when the only device-independent modifiers
+    /// down are the held trigger's own hold modifier(s). The panel is held
+    /// open by whatever modifier the user recorded — ⌘ for the default ⌘Tab,
+    /// but e.g. ⌥ for an ⌥Tab trigger (issue #71) — so that modifier must not
+    /// block h/j/k/l, while any modifier beyond it still passes the keystroke
+    /// through. With no trigger modifier down (sticky/stay-open panel) this
+    /// requires no modifiers at all. Masked so raw system bits (fn,
+    /// non-coalesced, alpha-shift) never affect the comparison.
+    static func onlyTriggerModifiersHeld(_ flags: CGEventFlags,
+                                         heldTriggerModifiers: CGEventFlags) -> Bool {
+        flags.intersection(triggerComparableMask)
+            == heldTriggerModifiers.intersection(triggerComparableMask)
+    }
     /// Boot floor for the switcher trigger. `Config` can't be empty, so this
     /// mirrors BetterShortcuts' `switchApps`/`switchWindows` defaults (⌘Tab/⌘`);
     /// `SwitcherController.pushHotkeyConfig` overwrites it from BetterShortcuts
@@ -1158,11 +1172,14 @@ final class HotkeyTap {
                             // Opt-in because h overlaps the default Hide panel
                             // binding and j/k/l overlap letter-jump. Checked
                             // before `panelKeyMap` and letter-jump so an enabled
-                            // vim toggle wins over both. ⌘ is intentionally NOT
-                            // gated out: the panel is held open by the ⌘ hold
-                            // modifier, so vim nav — like the letter-jump below —
-                            // must fire while ⌘ is down; ⌥/⌃/⇧ + h/j/k/l still
-                            // pass through. Search mode is handled in the
+                            // vim toggle wins over both. The trigger's hold
+                            // modifier(s) are intentionally NOT gated out: the
+                            // panel is held open by whatever modifier the user
+                            // recorded (⌘ by default, ⌥ for an ⌥Tab trigger —
+                            // issue #71), so vim nav — like the letter-jump
+                            // below — must fire while it is down; any modifier
+                            // beyond the held trigger's own still passes the
+                            // keystroke through. Search mode is handled in the
                             // `isSearchingNow()` branch above, so the query
                             // swallows these letters there. While vim is on,
                             // h/j/k/l are also unioned into `reservedLetters`, so
@@ -1181,7 +1198,10 @@ final class HotkeyTap {
                             let vimOn = vimNavigationFlag.withLock { $0 }
                             let typed = vimOn ? translate(keyCode: UInt16(keyCode)) : nil
                             if vimOn,
-                               !shiftHeld, !optionHeld, !controlHeld,
+                               Self.onlyTriggerModifiersHeld(
+                                   flags,
+                                   heldTriggerModifiers: (appModHeld ? cfg.appModifier : [])
+                                       .union(windowModHeld ? cfg.windowModifier : [])),
                                let ch = typed,
                                let vimEvent = Self.vimNavigationEvent(for: Character(ch.lowercased())) {
                                 deliver(vimEvent)
