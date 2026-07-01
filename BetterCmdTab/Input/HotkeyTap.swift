@@ -186,9 +186,24 @@ final class HotkeyTap {
     /// True while the switcher is in browser-tab drill-in. Nav keys reroute to
     /// `.tabPrev`/`.tabNext`, Esc exits the drill, Cmd release commits the tab.
     private let tabDrillFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
-    /// When true, a discrete mouse-wheel scroll steps the open switcher's
-    /// selection. Continuous (trackpad / precise) scrolls are always ignored.
+    /// When true, a mouse-wheel scroll steps the open switcher's selection.
+    /// Trackpad / Magic Mouse gesture scrolls (which carry a scroll or
+    /// momentum phase) always pass through; phase-less *continuous* wheel
+    /// scrolls from driver-smoothed mice accumulate into steps (issue #68).
     private let scrollEnabledFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+    /// Running line-delta accumulator for continuous (phase-less) wheel
+    /// scrolls plus the uptime of the last accumulated event, so a pause
+    /// drops a stale remainder. Only touched while the switcher is open with
+    /// scroll-to-switch on — the idle path never reads it.
+    private let continuousScrollState =
+        OSAllocatedUnfairLock<(acc: Double, lastNs: UInt64)>(initialState: (0, 0))
+    /// One selection step per this many accumulated scroll lines. Smooth
+    /// wheels report a wheel notch as a burst of continuous line-fraction
+    /// deltas totalling a few lines, so this lands near one step per notch.
+    private static let continuousScrollStepLines: Double = 3.0
+    /// A pause longer than this between continuous scroll events resets the
+    /// accumulated remainder, so leftovers never bleed into the next scroll.
+    private static let continuousScrollResetNs: UInt64 = 250_000_000 // 250 ms
     /// Flip the scroll-to-switch direction.
     private let scrollReverseFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
     /// When true, a mouse-down outside `switcherFrame` while the switcher is
@@ -293,6 +308,23 @@ final class HotkeyTap {
                                          heldTriggerModifiers: CGEventFlags) -> Bool {
         flags.intersection(triggerComparableMask)
             == heldTriggerModifiers.intersection(triggerComparableMask)
+    }
+
+    /// Pure step accumulator for continuous mouse-wheel scrolls (issue #68).
+    /// Driver-smoothed wheels (Logitech Options, many Bluetooth mice) report
+    /// a notch as a burst of line-fraction deltas instead of one discrete ±1,
+    /// so the tap sums them and emits one step per `threshold` lines, keeping
+    /// the remainder for the next event. A direction flip discards the
+    /// opposite-sign remainder first so reversing reacts immediately.
+    /// Stateless so the tests can exercise it directly.
+    static func accumulateContinuousScroll(
+        accumulated: Double, delta: Double, threshold: Double
+    ) -> (steps: Int, remainder: Double) {
+        var acc = accumulated
+        if delta != 0, acc != 0, (acc < 0) != (delta < 0) { acc = 0 }
+        acc += delta
+        let steps = Int((acc / threshold).rounded(.towardZero))
+        return (steps, acc - Double(steps) * threshold)
     }
     /// Boot floor for the switcher trigger. `Config` can't be empty, so this
     /// mirrors BetterShortcuts' `switchApps`/`switchWindows` defaults (⌘Tab/⌘`);
@@ -517,6 +549,9 @@ final class HotkeyTap {
         // must always kill a lingering held-Shift backward repeat — catch-all
         // for any close path the tap-thread stop signals don't observe.
         if !value { stopShiftRepeat() }
+        // Closing also drops any partially-accumulated continuous scroll so a
+        // leftover fraction can't leak a step into the next open.
+        if !value { continuousScrollState.withLock { $0 = (0, 0) } }
         // The pointer tap is only needed while the switcher is open; keep it
         // live exactly for that window so idle scroll/click traffic never
         // enters this process. Safe to call from main: `tapEnable` just toggles
@@ -910,10 +945,7 @@ final class HotkeyTap {
         }
 
         if type == .scrollWheel {
-            // Step the open switcher with a discrete mouse wheel. Trackpad and
-            // Magic Mouse produce *continuous* (precise) scrolls — pass those
-            // straight through so two-finger scrolling stays free and the
-            // trackpad keeps its three-finger swipe. Only acts while the
+            // Step the open switcher with a mouse wheel. Only acts while the
             // switcher is already showing; never opens it from idle. Inert
             // while drilled into a tab strip — an app-list step there would
             // desync the highlight from the strip.
@@ -922,15 +954,51 @@ final class HotkeyTap {
                 return Unmanaged.passUnretained(event)
             }
             let continuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
-            let delta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-            guard !continuous, delta != 0 else {
+            if !continuous {
+                let delta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+                guard delta != 0 else { return Unmanaged.passUnretained(event) }
+                // With macOS natural scrolling, rolling the wheel down gives a
+                // negative delta and should advance the selection forward.
+                let reverse = scrollReverseFlag.withLock { $0 }
+                let forward = (delta < 0) != reverse
+                deliver(forward ? .nextApp : .prevApp)
+                return nil
+            }
+            // Continuous scrolls: trackpad and Magic Mouse gestures carry a
+            // scroll or momentum phase — pass those straight through so
+            // two-finger scrolling stays free and the trackpad keeps its
+            // three-finger swipe. A continuous scroll with NO phase is a
+            // driver-smoothed mouse wheel (Logitech Options, many Bluetooth
+            // mice — issue #68): the user rolled a physical wheel and expects
+            // a step, so accumulate the line-fraction deltas and step per
+            // `continuousScrollStepLines`, swallowing the events like the
+            // discrete path does.
+            let phase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
+            let momentum = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
+            guard phase == 0, momentum == 0 else {
                 return Unmanaged.passUnretained(event)
             }
-            // With macOS natural scrolling, rolling the wheel down gives a
-            // negative delta and should advance the selection forward.
-            let reverse = scrollReverseFlag.withLock { $0 }
-            let forward = (delta < 0) != reverse
-            deliver(forward ? .nextApp : .prevApp)
+            let lineDelta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+            guard lineDelta != 0 else { return Unmanaged.passUnretained(event) }
+            let now = DispatchTime.now().uptimeNanoseconds
+            let steps = continuousScrollState.withLock { state -> Int in
+                if now &- state.lastNs > Self.continuousScrollResetNs { state.acc = 0 }
+                state.lastNs = now
+                let result = Self.accumulateContinuousScroll(
+                    accumulated: state.acc, delta: lineDelta,
+                    threshold: Self.continuousScrollStepLines)
+                state.acc = result.remainder
+                return result.steps
+            }
+            if steps != 0 {
+                let reverse = scrollReverseFlag.withLock { $0 }
+                let forward = (steps < 0) != reverse
+                // A single flick can cross several thresholds; cap the burst
+                // so one event can never flood the selection.
+                for _ in 0..<min(abs(steps), 3) {
+                    deliver(forward ? .nextApp : .prevApp)
+                }
+            }
             return nil
         }
 
