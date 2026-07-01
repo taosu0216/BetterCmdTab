@@ -261,6 +261,25 @@ final class HotkeyTap {
     static func wmFullChordKey(keyCode: Int64, modBits: Int) -> Int {
         (Int(keyCode) << 4) | (modBits & 0b1111)
     }
+
+    /// Device-independent modifier bits the idle trigger match compares. Raw
+    /// `event.flags` carry extra system bits (non-coalesced, fn, alpha-shift)
+    /// that must never affect the comparison.
+    static let triggerComparableMask: CGEventFlags = [
+        .maskCommand, .maskAlternate, .maskControl, .maskShift,
+    ]
+
+    /// Exact-chord match for a trigger keyDown while the switcher is CLOSED.
+    /// The event's ⌘⌥⌃⇧ bits must equal the configured modifier exactly,
+    /// tolerating Shift as an extra only (Shift reverses the cycle direction,
+    /// like the native switcher). The superset `flags.contains` check alone
+    /// would also swallow unrelated chords that merely include the trigger
+    /// modifier — e.g. ⌘⌥⌃` with a ⌘` window trigger (issue #79).
+    static func triggerChordMatches(_ flags: CGEventFlags, configured: CGEventFlags) -> Bool {
+        let held = flags.intersection(triggerComparableMask)
+        let wanted = configured.intersection(triggerComparableMask)
+        return held == wanted || held == wanted.union(.maskShift)
+    }
     /// Boot floor for the switcher trigger. `Config` can't be empty, so this
     /// mirrors BetterShortcuts' `switchApps`/`switchWindows` defaults (⌘Tab/⌘`);
     /// `SwitcherController.pushHotkeyConfig` overwrites it from BetterShortcuts
@@ -979,20 +998,33 @@ final class HotkeyTap {
             // "Ignore shortcuts" exception: while idle, let the trigger chord
             // fall through to the focused app instead of opening the switcher.
             // Only when not already switching — an open switcher still navigates.
-            let suppressTrigger = !isSwitchingNow() && suppressTriggerFlag.withLock { $0 }
-            if appModHeld, let appKey = cfg.appKey, keyCode == appKey {
+            let switchingNow = isSwitchingNow()
+            let suppressTrigger = !switchingNow && suppressTriggerFlag.withLock { $0 }
+            // While IDLE the trigger must match its chord exactly (modulo an
+            // extra Shift for reverse cycling) so unrelated combos that merely
+            // contain the trigger modifier — ⌘⌥⌃`, ⌘⌥Tab — pass through to
+            // other apps instead of opening the switcher (issue #79). Once the
+            // switcher is open the superset `appModHeld`/`windowModHeld` keeps
+            // cycling alive with ⌥/⌃/⇧ window-management chord keys held.
+            if appModHeld, let appKey = cfg.appKey, keyCode == appKey,
+               switchingNow || Self.triggerChordMatches(flags, configured: cfg.appModifier) {
                 if suppressTrigger { return Unmanaged.passUnretained(event) }
                 let dir: Event = shiftHeld ? .prevApp : .nextApp
                 deliver(dir)
                 return nil
             }
-            if windowModHeld, let windowKey = cfg.windowKey, keyCode == windowKey {
+            if windowModHeld, let windowKey = cfg.windowKey, keyCode == windowKey,
+               switchingNow || Self.triggerChordMatches(flags, configured: cfg.windowModifier) {
                 if suppressTrigger { return Unmanaged.passUnretained(event) }
                 let dir: Event = shiftHeld ? .prevWindow : .nextWindow
                 deliver(dir)
                 return nil
             }
-            if anyModHeld && keyCode == Self.escKey {
+            // Modifier+Esc is the switcher's cancel chord — but only while a
+            // switch is in flight (a `.primed` quick switch counts). Swallowing
+            // it unconditionally ate ⌘Esc (Raycast) and ⌥Esc (Speak Selection)
+            // system-wide whenever the hold modifier matched (issues #49, #73).
+            if anyModHeld && switchingNow && keyCode == Self.escKey {
                 deliver(.escape)
                 return nil
             }
