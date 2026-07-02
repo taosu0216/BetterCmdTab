@@ -24,6 +24,11 @@ struct WindowInfo {
     /// for an ordinary single window and whenever "expand tabs as windows" is on
     /// (each tab is then its own `WindowInfo`).
     let tabWindows: [TabWindowRef]
+    /// True when this window is a background tab of a native tab group kept as
+    /// its own row ("expand tabs as windows"). A tabbed-away window is ordered
+    /// out and belongs to no Space, which is also the phantom-window signal —
+    /// this flag exempts it from that filter so expand mode keeps its rows.
+    let isTabSibling: Bool
 
     init(
         ref: AXUIElement,
@@ -32,7 +37,8 @@ struct WindowInfo {
         isMinimized: Bool,
         isFullscreen: Bool = false,
         tabs: [AXUIElement] = [],
-        tabWindows: [TabWindowRef] = []
+        tabWindows: [TabWindowRef] = [],
+        isTabSibling: Bool = false
     ) {
         self.ref = ref
         self.cgWindowID = cgWindowID
@@ -41,6 +47,7 @@ struct WindowInfo {
         self.isFullscreen = isFullscreen
         self.tabs = tabs
         self.tabWindows = tabWindows
+        self.isTabSibling = isTabSibling
     }
 }
 
@@ -80,12 +87,18 @@ struct CGWindowSnapshot {
     /// standard windows. Floating/modal/utility windows (levels 1–19) are NOT here
     /// — they are legitimate user windows and stay in the switcher.
     let nonNormalLayer: [pid_t: Set<CGWindowID>]
+    /// Wids WindowServer reports as currently ordered in (`kCGWindowIsOnscreen`).
+    /// A tabbed-away native-tab window is ordered out while its front tab is
+    /// ordered in — the discriminator the tab-stack resolver uses on macOS
+    /// builds where AppKit lists background tabs in `kAXWindowsAttribute`.
+    let onscreen: [pid_t: Set<CGWindowID>]
 
-    static let empty = CGWindowSnapshot(ids: [:], zOrder: [:], nonNormalLayer: [:])
+    static let empty = CGWindowSnapshot(ids: [:], zOrder: [:], nonNormalLayer: [:], onscreen: [:])
 
     func ids(for pid: pid_t) -> Set<CGWindowID> { ids[pid] ?? [] }
     func zOrder(for pid: pid_t) -> [CGWindowID] { zOrder[pid] ?? [] }
     func nonNormalLayer(for pid: pid_t) -> Set<CGWindowID> { nonNormalLayer[pid] ?? [] }
+    func onscreen(for pid: pid_t) -> Set<CGWindowID> { onscreen[pid] ?? [] }
 }
 
 enum WindowEnumerator {
@@ -152,7 +165,7 @@ enum WindowEnumerator {
         // Cast to `[NSDictionary]`, not `[[String: Any]]`: the entries stay
         // toll-free-bridged CFDictionaries (no per-window Swift dictionary
         // allocated, no eager bridge of the ~10 keys we never read). Only the
-        // 5 fields below get bridged, on access. This runs on the cold-reveal
+        // 6 fields below get bridged, on access. This runs on the cold-reveal
         // full-scan path and on every coalesced bump, so the saved allocations
         // add up.
         guard let cfArray = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [NSDictionary] else {
@@ -161,6 +174,7 @@ enum WindowEnumerator {
         var ids: [pid_t: Set<CGWindowID>] = [:]
         var zOrder: [pid_t: [CGWindowID]] = [:]
         var nonNormalLayer: [pid_t: Set<CGWindowID>] = [:]
+        var onscreen: [pid_t: Set<CGWindowID>] = [:]
         for entry in cfArray {
             guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t else { continue }
             guard let widNum = entry[kCGWindowNumber as String] as? Int else { continue }
@@ -181,13 +195,16 @@ enum WindowEnumerator {
                 if ids[ownerPID, default: []].insert(wid).inserted {
                     zOrder[ownerPID, default: []].append(wid)
                 }
+                if (entry[kCGWindowIsOnscreen as String] as? Bool) == true {
+                    onscreen[ownerPID, default: []].insert(wid)
+                }
             case .nonNormalLayer:
                 nonNormalLayer[ownerPID, default: []].insert(wid)
             case .excluded:
                 break
             }
         }
-        return CGWindowSnapshot(ids: ids, zOrder: zOrder, nonNormalLayer: nonNormalLayer)
+        return CGWindowSnapshot(ids: ids, zOrder: zOrder, nonNormalLayer: nonNormalLayer, onscreen: onscreen)
     }
 
     /// Back-compat entry point for the cold full-catalog paths (`AppCatalog`,
@@ -200,14 +217,16 @@ enum WindowEnumerator {
         isRegularApp: Bool = true,
         expectedCGWindowIDs: Set<CGWindowID> = [],
         cgZOrder: [CGWindowID] = [],
-        nonNormalLayerWids: Set<CGWindowID> = []
+        nonNormalLayerWids: Set<CGWindowID> = [],
+        onscreenWids: Set<CGWindowID> = []
     ) -> [WindowInfo] {
         enumerate(
             forPid: pid,
             isRegularApp: isRegularApp,
             expectedCGWindowIDs: expectedCGWindowIDs,
             cgZOrder: cgZOrder,
-            nonNormalLayerWids: nonNormalLayerWids
+            nonNormalLayerWids: nonNormalLayerWids,
+            onscreenWids: onscreenWids
         ).windows
     }
 
@@ -248,7 +267,8 @@ enum WindowEnumerator {
         expectedCGWindowIDs: Set<CGWindowID> = [],
         cgZOrder: [CGWindowID] = [],
         knownUncoverable: Set<CGWindowID> = [],
-        nonNormalLayerWids: Set<CGWindowID> = []
+        nonNormalLayerWids: Set<CGWindowID> = [],
+        onscreenWids: Set<CGWindowID> = []
     ) -> (windows: [WindowInfo], uncoverable: Set<CGWindowID>) {
         let axApp = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(axApp, Self.confirmedTimeout)
@@ -426,7 +446,7 @@ enum WindowEnumerator {
             let minimized: Bool
             let fullscreen: Bool
             let title: String
-            let frameKey: String?
+            let frame: CGRect?
             let fromAXList: Bool
         }
         var raws: [RawWindow] = []
@@ -450,7 +470,7 @@ enum WindowEnumerator {
             // scan) share a frame yet are NOT tabs (macOS never tabs fullscreen
             // windows). Excluding both from frame-grouping prevents collapsing a
             // real off-Space fullscreen window into an unrelated row (issue #10).
-            let frameKey = (minimized || fullscreen) ? nil : frameKeyFromAttributes(values[5], values[6])
+            let frame = (minimized || fullscreen) ? nil : frameFromAttributes(values[5], values[6])
 
             raws.append(RawWindow(
                 element: window,
@@ -459,24 +479,49 @@ enum WindowEnumerator {
                 minimized: minimized,
                 fullscreen: fullscreen,
                 title: windowTitle,
-                frameKey: frameKey,
+                frame: frame,
                 fromAXList: axListRefs.contains(AXRef(element: window))
             ))
         }
 
         // Native macOS window tabs: each tab is its own NSWindow at the group's
-        // shared frame, but AppKit exposes only the FRONT tab in the app's window
-        // list — the background tabs surface only via the brute scan. So a
-        // brute-only window whose frame matches an AX-listed window of the same
-        // app is a background tab, never a separate window (two real overlapping
-        // windows are both AX-listed — issue #10 stays safe). Collapse keeps the
-        // front tab and attaches the rest as `tabWindows` for the `\` peek;
-        // expand emits one row per tab. No reliance on `AXTabs` (which these
-        // apps don't expose).
+        // shared frame. On current macOS AppKit exposes only the FRONT tab in
+        // the app's window list — the background tabs surface only via the
+        // brute scan, so a brute-only window at an AX-listed window's exact
+        // frame is a background tab (two real overlapping windows are both
+        // AX-listed — issue #10 stays safe). Shapes that rule misses (issue
+        // #81) — a background tab left at its stale pre-merge frame
+        // (CotEditor), or AX-listed on macOS builds that list every tab window
+        // (Sonoma) — are caught by the near-frame rule: ordered out near an
+        // ordered-in front's frame and spaceless / on the front's own Space.
+        // Ordered-in windows and windows on another Space are never folded.
+        // Collapse keeps the front tab and attaches the rest as `tabWindows`
+        // for the `\` peek; expand emits one row per tab. No reliance on
+        // `AXTabs` (which these apps don't expose).
         let expand = UserDefaults.standard.bool(forKey: Preferences.Keys.expandTabsAsWindows)
+        let frames = raws.map(\.frame)
+        let fromAXList = raws.map(\.fromAXList)
+        let onscreen = raws.map { onscreenWids.contains($0.cgWindowID) }
+        // Space membership is one WindowServer IPC per window, so resolve it
+        // only for the windows the near-frame tab rule can act on (plus their
+        // on-screen fronts, for the same-Space comparison). Empty for apps
+        // without a tab-shaped group — the common case pays nothing.
+        var spaceless = [Bool](repeating: false, count: raws.count)
+        var spaceOf = [UInt64?](repeating: nil, count: raws.count)
+        let spaceQueryIndices = tabSpaceQueryIndices(frames: frames, fromAXList: fromAXList, onscreen: onscreen)
+        if !spaceQueryIndices.isEmpty {
+            let membership = PrivateAPI.spaceMembership(forWindows: spaceQueryIndices.map { raws[$0].cgWindowID })
+            for i in spaceQueryIndices {
+                spaceless[i] = membership.spaceless.contains(raws[i].cgWindowID)
+                spaceOf[i] = membership.resolved[raws[i].cgWindowID]
+            }
+        }
         let resolution = resolveTabStacks(
-            frameKeys: raws.map(\.frameKey),
-            fromAXList: raws.map(\.fromAXList),
+            frames: frames,
+            fromAXList: fromAXList,
+            onscreen: onscreen,
+            spaceless: spaceless,
+            spaceOf: spaceOf,
             expand: expand
         )
         for (i, raw) in raws.enumerated() where resolution.keep[i] {
@@ -492,7 +537,8 @@ enum WindowEnumerator {
                 isMinimized: raw.minimized,
                 isFullscreen: raw.fullscreen,
                 tabs: raw.tabs.count > 1 ? raw.tabs : [],
-                tabWindows: tabWindows
+                tabWindows: tabWindows,
+                isTabSibling: resolution.tabSibling[i]
             ))
         }
 
@@ -506,59 +552,155 @@ enum WindowEnumerator {
     /// `keep[i]` is false for background-tab windows folded into their front tab
     /// (collapse mode only). `siblingIndices[front]` lists the background-tab
     /// indices folded under that kept front window, so the caller can attach
-    /// them as `tabWindows` for the `\` peek.
+    /// them as `tabWindows` for the `\` peek. `tabSibling[i]` is true for
+    /// background tabs kept as their own rows (expand mode only) — the flag that
+    /// exempts them from the phantom-window filter, since a tabbed-away window
+    /// is spaceless just like an Electron helper.
     struct TabResolution {
         let keep: [Bool]
         let siblingIndices: [Int: [Int]]
+        let tabSibling: [Bool]
+    }
+
+    /// How far a tabbed-away window's stale frame may drift from the group's
+    /// on-screen frame and still count as the same tab stack. Some apps
+    /// (CotEditor, issue #81) never update a background tab's NSWindow frame
+    /// after merging, so it keeps the pre-merge cascade offset (~21pt);
+    /// Finder/Terminal keep siblings byte-identical. 50pt matches AltTab's
+    /// tab-sibling tolerance and stays well under any deliberate window offset.
+    static let tabFrameTolerance: CGFloat = 50
+
+    /// Whether `frame` is close enough to `front` to be the same tab stack:
+    /// identical rounded size, origin within `tabFrameTolerance` on both axes.
+    static func isNearTabFrame(_ frame: CGRect, _ front: CGRect) -> Bool {
+        frame.size == front.size
+            && abs(frame.origin.x - front.origin.x) <= tabFrameTolerance
+            && abs(frame.origin.y - front.origin.y) <= tabFrameTolerance
+    }
+
+    /// Indices whose Space membership `resolveTabStacks` needs: ordered-out
+    /// windows sitting near an ordered-in AX-listed window's frame that the
+    /// exact-frame brute rule alone can't classify (AX-listed ones — the
+    /// Sonoma shape — and brute-only ones whose stale frame drifted off the
+    /// group's, the CotEditor shape), plus the ordered-in fronts themselves
+    /// (for the same-Space comparison). Empty — the common case — means the
+    /// caller skips the per-window `CGSCopySpacesForWindows` IPCs entirely.
+    /// Pure, so the gate is unit-testable.
+    static func tabSpaceQueryIndices(frames: [CGRect?], fromAXList: [Bool], onscreen: [Bool]) -> [Int] {
+        let n = frames.count
+        let fronts = (0..<n).filter { fromAXList[$0] && onscreen[$0] && frames[$0] != nil }
+        guard !fronts.isEmpty else { return [] }
+        // Exact frames of AX-listed windows: a brute-only window at one of these
+        // is folded by the exact rule with no Space data needed.
+        var axFrames = Set<String>()
+        for i in 0..<n where fromAXList[i] {
+            if let f = frames[i] { axFrames.insert(frameKey(f)) }
+        }
+        var indices: [Int] = []
+        var neededFronts = Set<Int>()
+        for i in 0..<n where !onscreen[i] {
+            guard let f = frames[i] else { continue }
+            if !fromAXList[i] && axFrames.contains(frameKey(f)) { continue }
+            guard let front = fronts.first(where: { isNearTabFrame(f, frames[$0]!) }) else { continue }
+            indices.append(i)
+            neededFronts.insert(front)
+        }
+        return indices.isEmpty ? [] : indices + neededFronts.sorted()
     }
 
     /// Decide which windows to surface and which are native background tabs.
-    /// Pure (no AX) so it is unit-testable. `frameKeys[i] == nil` means the
+    /// Pure (no AX/CGS) so it is unit-testable. `frames[i] == nil` means the
     /// window is unframeable/minimized/fullscreen and is never treated as a tab.
     ///
-    /// - expand: every window is kept as its own row (one entry per tab); no
-    ///   grouping.
-    /// - collapse: every AX-listed window is kept; a brute-only window whose
-    ///   frame matches an AX-listed window's frame is dropped and recorded as a
-    ///   background tab of the first AX-listed window at that frame. Brute-only
-    ///   windows at a frame with no AX-listed window are kept (e.g. fullscreen
-    ///   windows the public list misses), preserving prior behavior.
-    static func resolveTabStacks(frameKeys: [String?], fromAXList: [Bool], expand: Bool) -> TabResolution {
-        let n = frameKeys.count
-        var keep = [Bool](repeating: true, count: n)
-        guard !expand else { return TabResolution(keep: keep, siblingIndices: [:]) }
-
-        var axFrames = Set<String>()
+    /// A window is a background tab when either:
+    /// - it is brute-only at the *exact* frame of an AX-listed window — AppKit
+    ///   lists only the front tab, so the brute scan is the only place
+    ///   background tabs surface on current macOS. Two real overlapping
+    ///   windows are both AX-listed, so issue #10 stays safe. Or:
+    /// - it is ordered out (`onscreen[i] == false`) *near* an ordered-in
+    ///   AX-listed front's frame (same size, origin within
+    ///   `tabFrameTolerance`), and WindowServer reports it spaceless or on the
+    ///   front's own Space. This catches the shapes the exact rule misses
+    ///   (issue #81): apps that leave a background tab's frame at its stale
+    ///   pre-merge cascade offset (CotEditor), and macOS builds that AX-list
+    ///   every tab window (Sonoma). Ordered-in windows (real overlapping
+    ///   windows, issue #10) and windows resolved to a *different* Space (a
+    ///   same-frame window on another desktop) are never folded.
+    ///
+    /// - expand: every window is kept as its own row (one entry per tab);
+    ///   background tabs are flagged `tabSibling` instead of folded.
+    /// - collapse: background tabs are dropped and recorded as siblings of
+    ///   their front window. Brute-only windows matching no AX-listed window
+    ///   are kept (e.g. fullscreen windows the public list misses), preserving
+    ///   prior behavior.
+    static func resolveTabStacks(
+        frames: [CGRect?],
+        fromAXList: [Bool],
+        onscreen: [Bool],
+        spaceless: [Bool],
+        spaceOf: [UInt64?],
+        expand: Bool
+    ) -> TabResolution {
+        let n = frames.count
+        // Exact-frame front: the ordered-in AX-listed window (the visible front
+        // tab) when present, else the first AX-listed one (prior behavior).
         var frontForFrame: [String: Int] = [:]
         for i in 0..<n where fromAXList[i] {
-            guard let f = frameKeys[i] else { continue }
-            axFrames.insert(f)
-            if frontForFrame[f] == nil { frontForFrame[f] = i }
+            guard let f = frames[i] else { continue }
+            let key = frameKey(f)
+            if let current = frontForFrame[key] {
+                if !onscreen[current] && onscreen[i] { frontForFrame[key] = i }
+            } else {
+                frontForFrame[key] = i
+            }
         }
+        let nearFronts = (0..<n).filter { fromAXList[$0] && onscreen[$0] && frames[$0] != nil }
+        var isTab = [Bool](repeating: false, count: n)
         var siblings: [Int: [Int]] = [:]
-        for i in 0..<n where !fromAXList[i] {
-            guard let f = frameKeys[i], axFrames.contains(f) else { continue }
-            keep[i] = false
-            if let front = frontForFrame[f] { siblings[front, default: []].append(i) }
+        for i in 0..<n {
+            guard let f = frames[i] else { continue }
+            var front: Int?
+            if !fromAXList[i], let exact = frontForFrame[frameKey(f)], exact != i {
+                front = exact
+            } else if !onscreen[i],
+                      let near = nearFronts.first(where: { $0 != i && isNearTabFrame(f, frames[$0]!) }),
+                      spaceless[i] || (spaceOf[i] != nil && spaceOf[i] == spaceOf[near]) {
+                front = near
+            }
+            if let front {
+                isTab[i] = true
+                siblings[front, default: []].append(i)
+            }
         }
-        return TabResolution(keep: keep, siblingIndices: siblings)
+        if expand {
+            return TabResolution(keep: [Bool](repeating: true, count: n), siblingIndices: [:], tabSibling: isTab)
+        }
+        var keep = [Bool](repeating: true, count: n)
+        for i in 0..<n where isTab[i] { keep[i] = false }
+        return TabResolution(keep: keep, siblingIndices: siblings, tabSibling: [Bool](repeating: false, count: n))
     }
 
-    /// Stringify a window's (position, size) for dedup. Returns nil when
-    /// either attribute is missing or fails to decode — defaults to "keep
-    /// the window" rather than collapsing on incomplete data.
-    private static func frameKeyFromAttributes(_ posValue: AnyObject, _ sizeValue: AnyObject) -> String? {
+    /// Decode a window's (position, size) for dedup, rounded to whole pixels —
+    /// tab-sibling NSWindows occasionally differ by a sub-pixel due to
+    /// autosize; the visual outline is identical. Returns nil when either
+    /// attribute is missing or fails to decode — defaults to "keep the window"
+    /// rather than collapsing on incomplete data.
+    private static func frameFromAttributes(_ posValue: AnyObject, _ sizeValue: AnyObject) -> CGRect? {
         guard CFGetTypeID(posValue) == AXValueGetTypeID(),
               CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
         var origin = CGPoint.zero
         var size = CGSize.zero
         guard AXValueGetValue(posValue as! AXValue, .cgPoint, &origin),
               AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
-        // Round to whole pixels — tab-sibling NSWindows occasionally differ
-        // by a sub-pixel due to autosize; the visual outline is identical.
-        let x = Int(origin.x.rounded()), y = Int(origin.y.rounded())
-        let w = Int(size.width.rounded()), h = Int(size.height.rounded())
-        return "\(x),\(y),\(w),\(h)"
+        return CGRect(
+            x: origin.x.rounded(), y: origin.y.rounded(),
+            width: size.width.rounded(), height: size.height.rounded()
+        )
+    }
+
+    /// Exact-match dictionary key for a (rounded) window frame.
+    private static func frameKey(_ f: CGRect) -> String {
+        "\(Int(f.origin.x)),\(Int(f.origin.y)),\(Int(f.width)),\(Int(f.height))"
     }
 
     /// Re-orders the AX-derived window list to match the WindowServer

@@ -221,9 +221,9 @@ struct CatalogFilterTests {
 
     // MARK: - phantom-window filtering
 
-    private func win(_ offset: Int, _ pid: pid_t, _ wid: CGWindowID, onScreen: Bool, minimized: Bool = false)
-        -> (offset: Int, pid: pid_t, wid: CGWindowID, onScreen: Bool, isMinimized: Bool) {
-        (offset, pid, wid, onScreen, minimized)
+    private func win(_ offset: Int, _ pid: pid_t, _ wid: CGWindowID, onScreen: Bool, minimized: Bool = false, tabSibling: Bool = false)
+        -> (offset: Int, pid: pid_t, wid: CGWindowID, onScreen: Bool, isMinimized: Bool, isTabSibling: Bool) {
+        (offset, pid, wid, onScreen, minimized, tabSibling)
     }
 
     @Test("phantom dropped when its app has an on-screen sibling")
@@ -301,6 +301,17 @@ struct CatalogFilterTests {
     func noSpacelessKeepsEverything() {
         let rows = [win(0, 1, 100, onScreen: false), win(1, 1, 200, onScreen: false)]
         let drop = CatalogFilter.phantomWindowOffsets(windowRows: rows, resolvedCandidateWids: [100, 200], spacelessWids: [])
+        #expect(drop.isEmpty)
+    }
+
+    @Test("tab-sibling row kept even though it is spaceless (expand tabs as windows)")
+    func tabSiblingSpacelessKept() {
+        // "Expand tabs as windows": the front tab (9168) is on screen, its
+        // tabbed-away sibling (49502) is ordered out and spaceless — the same
+        // WindowServer signature as an Electron phantom. The isTabSibling flag
+        // set at enumeration must exempt it, or the expand option shows nothing.
+        let rows = [win(0, 7, 9168, onScreen: true), win(1, 7, 49502, onScreen: false, tabSibling: true)]
+        let drop = CatalogFilter.phantomWindowOffsets(windowRows: rows, resolvedCandidateWids: [], spacelessWids: [49502])
         #expect(drop.isEmpty)
     }
 
