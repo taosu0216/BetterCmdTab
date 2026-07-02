@@ -318,6 +318,15 @@ enum Activator {
         }
     }
 
+    /// Monotonic id of the latest windowed activation. The deferred re-assert
+    /// and focus-verify closures capture it at schedule time and bail once a
+    /// newer activation starts, so rapid successive switches (fast ⌘⇥ taps,
+    /// ⌘` cycling) can't have an older activation's late re-assert yank focus
+    /// from the newer target — the frontmost-pid guard alone can't catch that
+    /// when both targets belong to the same app. Main-thread only: every
+    /// activation commits on main, and all readers run on main.
+    private static var activationGeneration: UInt64 = 0
+
     private static func activateRunning(app: NSRunningApplication, window: AXUIElement?, isFullscreen: Bool, instantSpace: Bool) {
         let pid = app.processIdentifier
 
@@ -333,6 +342,9 @@ enum Activator {
             }
             return
         }
+
+        activationGeneration &+= 1
+        let gen = activationGeneration
 
         // Parity with `activateApp`/`focusedWindow`: cap AX messaging so a wedged
         // target can't stall the (main-thread) raise + focus writes below.
@@ -381,11 +393,48 @@ enum Activator {
         // once activation has settled, but only while our target is still frontmost
         // so we never yank focus the user may have since moved elsewhere.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+            guard gen == activationGeneration,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
             AXUIElementPerformAction(window, kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
             AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            verifyFocusSettled(window: window, wid: wid, pid: pid, generation: gen)
         }
+    }
+
+    /// Last line of defense for the async-activation focus race: ~0.2s after
+    /// activation, read the app's focused window OFF-main and — only when focus
+    /// visibly settled somewhere else — repeat the raise + focus writes once on
+    /// main. The 0.08s re-assert above can itself lose to a slow
+    /// `NSRunningApplication.activate` landing after it; this catches that tail.
+    /// Happy path costs a single off-main AX read (no writes, no main-thread
+    /// work). The generation + frontmost guards drop the retry when the user
+    /// (or a newer activation) has since moved focus deliberately.
+    private static func verifyFocusSettled(window: AXUIElement, wid: CGWindowID, pid: pid_t, generation: UInt64) {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.12) {
+            let focused = focusedWindow(pid: pid)
+            let focusedWid = focused.map { PrivateAPI.cgWindowId(of: $0) } ?? 0
+            let sameElement = focused.map { CFEqual($0, window) } ?? false
+            if focusSettled(targetWid: wid, focusedWid: focusedWid, sameElement: sameElement) { return }
+            DispatchQueue.main.async {
+                guard generation == activationGeneration,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                if wid != 0 { PrivateAPI.raiseWindow(pid: pid, wid: wid) }
+                AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+                AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            }
+        }
+    }
+
+    /// Pure decision core of `verifyFocusSettled`, split out for unit tests:
+    /// did focus land on the target window? Compare by CGWindowID when both
+    /// sides resolved one; otherwise fall back to AX element identity. An
+    /// unresolved focused window with no element match reads as "not settled" —
+    /// the retry's own guards keep a false negative harmless.
+    static func focusSettled(targetWid: CGWindowID, focusedWid: CGWindowID, sameElement: Bool) -> Bool {
+        if targetWid != 0, focusedWid != 0 { return focusedWid == targetWid }
+        return sameElement
     }
 
     /// Activate a specific tab inside `window`. Same window-bringing steps as
