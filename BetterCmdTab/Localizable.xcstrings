@@ -4316,58 +4316,30 @@
         }
       }
     },
-    "Most recent (windows) sort order" : {
+    "Most recent keeps the classic ⌘Tab order; Most recent (windows) interleaves windows from all apps by last focus; the others stay put as you switch." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sortierung „Zuletzt verwendet (Fenster)“"
+            "value" : "„Zuletzt verwendet“ behält die klassische ⌘Tab-Reihenfolge bei; „Zuletzt verwendet (Fenster)“ reiht Fenster aller Apps nach dem letzten Fokus ein; die anderen bleiben beim Wechseln an Ort und Stelle."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Orden «Más reciente (ventanas)»"
+            "value" : "«Más reciente» mantiene el orden clásico de ⌘Tab; «Más reciente (ventanas)» intercala las ventanas de todas las apps según el último uso; las demás permanecen en su sitio al cambiar."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tri « Récemment utilisé (fenêtres) »"
+            "value" : "Récemment utilisé conserve l’ordre classique de ⌘Tab ; Récemment utilisé (fenêtres) intercale les fenêtres de toutes les apps selon leur dernière utilisation ; les autres restent en place lorsque vous changez."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kolejność „Ostatnio używane (okna)“"
-          }
-        }
-      }
-    },
-    "Most recent keeps the classic ⌘Tab order; the others stay put as you switch." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "„Zuletzt verwendet“ behält die klassische ⌘Tab-Reihenfolge bei; die anderen bleiben beim Wechseln an Ort und Stelle."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "«Más reciente» mantiene el orden clásico de ⌘Tab; las demás permanecen en su sitio al cambiar."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Récemment utilisé conserve l’ordre classique de ⌘Tab ; les autres restent en place lorsque vous changez."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ostatnio używane zachowuje klasyczną kolejność ⌘Tab; pozostałe pozostają na miejscu podczas przełączania."
+            "value" : "Ostatnio używane zachowuje klasyczną kolejność ⌘Tab; Ostatnio używane (okna) przeplata okna wszystkich aplikacji według ostatniego użycia; pozostałe pozostają na miejscu podczas przełączania."
           }
         }
       }
@@ -4821,30 +4793,30 @@
         }
       }
     },
-    "Orders the list by when you last focused each window, across all apps." : {
+    "With “Show browser tabs as separate entries” and the “Most recent (windows)” sort order on, ⌘Tab returns to the tab you last used, not just the last window. Needs always-on monitoring of your browsers, so it costs a little energy." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordnet die Liste danach, wann du jedes Fenster zuletzt fokussiert hast – über alle Apps hinweg."
+            "value" : "Mit „Browser-Tabs als separate Einträge anzeigen“ und der Sortierung „Zuletzt verwendet (Fenster)“ kehrt ⌘Tab zum zuletzt genutzten Tab zurück, nicht nur zum letzten Fenster. Erfordert eine dauerhafte Überwachung deiner Browser und kostet daher etwas Energie."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordena la lista según cuándo enfocaste por última vez cada ventana, en todas las apps."
+            "value" : "Con «Mostrar las pestañas del navegador como entradas separadas» y el orden «Más reciente (ventanas)» activados, ⌘Tab vuelve a la pestaña que usaste por última vez, no solo a la última ventana. Requiere monitorizar los navegadores de forma continua, por lo que consume algo de energía."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trie la liste selon le moment où vous avez activé chaque fenêtre pour la dernière fois, toutes apps confondues."
+            "value" : "Avec « Afficher les onglets du navigateur comme entrées distinctes » et le tri « Récemment utilisé (fenêtres) » activés, ⌘Tab revient à l’onglet utilisé en dernier, pas seulement à la dernière fenêtre. Nécessite une surveillance permanente de vos navigateurs, ce qui consomme un peu d’énergie."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Porządkuje listę według tego, kiedy ostatnio aktywowano każde okno, we wszystkich aplikacjach."
+            "value" : "Z włączonymi „Pokazuj karty przeglądarki jako osobne pozycje” i kolejnością „Ostatnio używane (okna)” ⌘Tab wraca do ostatnio używanej karty, a nie tylko do ostatniego okna. Wymaga stałego monitorowania przeglądarek, więc zużywa nieco energii."
           }
         }
       }

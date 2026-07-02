@@ -125,7 +125,6 @@ enum SearchID {
     static let switchOnRelease = "experimental.switchOnRelease"
     static let sensitivity = "experimental.sensitivity"
     static let instantSpace = "experimental.instantSpace"
-    static let mruWindowsSort = "experimental.mruWindowsSort"
     static let browserTabMRU = "experimental.browserTabMRU"
 }
 
@@ -356,7 +355,7 @@ enum SettingsCatalog {
         item(SearchID.currentSpaceOnly, .switcher, SettingsAnchor.contents, String(localized: "Behavior"), String(localized: "Contents"),
              String(localized: "Only current Space"), ["space", "current space", "desktop", "filter"]),
         item(SearchID.sortOrder, .switcher, SettingsAnchor.contents, String(localized: "Behavior"), String(localized: "Contents"),
-             String(localized: "Sort order"), ["sort", "order", "mru", "most recent", "alphabetical", "launch order"]),
+             String(localized: "Sort order"), ["sort", "order", "mru", "most recent", "alphabetical", "launch order", "windows", "window recency"]),
         item(SearchID.showRecentlyClosed, .switcher, SettingsAnchor.contents, String(localized: "Behavior"), String(localized: "Contents"),
              String(localized: "Show recently closed apps"), ["recently closed", "reopen", "recent"]),
         item(SearchID.recentlyClosedLimit, .switcher, SettingsAnchor.contents, String(localized: "Behavior"), String(localized: "Contents"),
@@ -375,8 +374,6 @@ enum SettingsCatalog {
              String(localized: "Swipe sensitivity"), ["sensitivity", "swipe", "distance"]),
         item(SearchID.instantSpace, .experimental, SettingsAnchor.experimental, String(localized: "Experimental"), String(localized: "Experimental"),
              String(localized: "Switch Spaces without animation"), ["spaces", "space", "animation", "instant", "full screen"]),
-        item(SearchID.mruWindowsSort, .experimental, SettingsAnchor.experimental, String(localized: "Experimental"), String(localized: "Experimental"),
-             String(localized: "Most recent (windows) sort order"), ["sort", "window", "recent", "order", "mru", "windows"]),
         item(SearchID.browserTabMRU, .experimental, SettingsAnchor.experimental, String(localized: "Experimental"), String(localized: "Experimental"),
              String(localized: "Track browser tabs in recency"), ["browser", "tab", "tabs", "recent", "mru", "safari", "chrome"]),
     ]

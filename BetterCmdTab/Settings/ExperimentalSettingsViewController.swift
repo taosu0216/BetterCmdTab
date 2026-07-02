@@ -15,7 +15,6 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
     private let sensitivitySlider = NSSlider()
     private let sensitivityValueLabel = NSTextField(labelWithString: "")
     private let instantSpaceSwitch = NSSwitch()
-    private let mruWindowsSortSwitch = NSSwitch()
     private let browserTabMRUSwitch = NSSwitch()
 
     override func setupContent() {
@@ -62,18 +61,13 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
                accessory: instantSpaceSwitch, searchItemID: SearchID.instantSpace)
 
         addDivider(to: experimental)
-        configureSwitch(mruWindowsSortSwitch, action: #selector(toggleMRUWindowsSort(_:)))
-        addRow(to: experimental, title: String(localized: "Most recent (windows) sort order"),
-               subtitle: String(localized: "Orders the list by when you last focused each window, across all apps."),
-               accessory: mruWindowsSortSwitch, searchItemID: SearchID.mruWindowsSort)
-
         configureSwitch(browserTabMRUSwitch, action: #selector(toggleBrowserTabMRU(_:)))
         addRow(to: experimental, title: String(localized: "Track browser tabs in recency"),
-               subtitle: String(localized: "With “Show browser tabs as separate entries” and the windows sort order on, ⌘Tab returns to the tab you last used, not just the last window. Needs always-on monitoring of your browsers, so it costs a little energy."),
+               subtitle: String(localized: "With “Show browser tabs as separate entries” and the “Most recent (windows)” sort order on, ⌘Tab returns to the tab you last used, not just the last window. Needs always-on monitoring of your browsers, so it costs a little energy."),
                accessory: browserTabMRUSwitch, searchItemID: SearchID.browserTabMRU)
-        // "Show switcher on" (multi-monitor placement) and the `\` tab peek + tab
-        // expansion graduated to the Switcher tab once stable — see its "Display"
-        // and "Tabs" sections.
+        // "Show switcher on" (multi-monitor placement), the `\` tab peek + tab
+        // expansion, and the "Most recent (windows)" sort graduated to the
+        // Switcher tab once stable — see its "Display" and "Contents" sections.
     }
 
     private func configureSwitch(_ toggle: NSSwitch, action: Selector) {
@@ -120,7 +114,6 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
         commitSwitch.state = prefs.swipeCommitOnRelease ? .on : .off
         applySensitivity(prefs.swipeSensitivity)
         instantSpaceSwitch.state = prefs.experimentalInstantSpaceSwitch ? .on : .off
-        mruWindowsSortSwitch.state = prefs.sortOrder == .mruWindows ? .on : .off
         browserTabMRUSwitch.state = prefs.experimentalBrowserTabMRU ? .on : .off
         setSwipeSubOptionsEnabled(prefs.experimentalSwipeTrigger)
     }
@@ -162,16 +155,6 @@ final class ExperimentalSettingsViewController: SettingsTabViewController {
 
     @objc private func toggleBrowserTabMRU(_ sender: NSSwitch) {
         Preferences.shared.experimentalBrowserTabMRU = (sender.state == .on)
-    }
-
-    @objc private func toggleMRUWindowsSort(_ sender: NSSwitch) {
-        if sender.state == .on {
-            Preferences.shared.sortOrder = .mruWindows
-        } else if Preferences.shared.sortOrder == .mruWindows {
-            // Only revert if we own the current value — leave any other order
-            // the user picked in the Switcher popup untouched.
-            Preferences.shared.sortOrder = .mru
-        }
     }
 
     /// The reverse/commit/sensitivity controls only make sense while the swipe
