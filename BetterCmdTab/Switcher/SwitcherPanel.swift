@@ -187,8 +187,9 @@ final class SwitcherPanel: NSPanel {
         // opens; re-key on the next runloop (same approach as `resignKey`) so the
         // panel always holds key while it's on screen.
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.isVisible, !self.isKeyWindow else { return }
-            self.makeKeyAndOrderFront(nil)
+            guard let self, self.isVisible else { return }
+            if !self.isKeyWindow { self.makeKeyAndOrderFront(nil) }
+            self.healSpaceAssignmentIfNeeded()
         }
     }
 
@@ -215,6 +216,32 @@ final class SwitcherPanel: NSPanel {
         targetScreen = nil
         CATransaction.commit()
         onFrameDidChange?(nil)
+    }
+
+    /// The WindowServer can lose the `.canJoinAllSpaces` sticky tag when the
+    /// Space topology changes while the panel is ordered out — e.g. quitting a
+    /// full-screen app destroys its Space (#46, #64). The next order-front then
+    /// puts the panel only on its original Space: switching still works, but
+    /// the panel is invisible everywhere else. `isOnActiveSpace` exposes that
+    /// broken state once the panel is nominally on screen, so re-assert the
+    /// tag and re-order onto the now-active Space. Runs on the runloop turn
+    /// after `present()`; the healthy path costs a single property read.
+    private func healSpaceAssignmentIfNeeded() {
+        guard isVisible, !isOnActiveSpace else { return }
+        Log.ui.error("panel not on active Space after present — re-asserting canJoinAllSpaces (#46/#64)")
+        reassertAllSpacesTag()
+        orderOut(nil)
+        makeKeyAndOrderFront(nil)
+    }
+
+    /// Force the WindowServer to re-apply the collection behavior. Re-assigning
+    /// an identical mask may be short-circuited, so clear it first; the empty
+    /// intermediate state is never user-visible (the panel is hidden or on the
+    /// wrong Space whenever this runs).
+    func reassertAllSpacesTag() {
+        let behavior = collectionBehavior
+        collectionBehavior = []
+        collectionBehavior = behavior
     }
 
     /// Convert a Cocoa global rect (bottom-left origin, y-up) to the CGEvent

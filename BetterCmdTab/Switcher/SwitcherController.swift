@@ -485,14 +485,26 @@ final class SwitcherController: SwitcherViewDelegate {
             }
         }
         // The active Space flipping (full-screen enter/exit is its own Space)
-        // only affects trigger suppression, not the MRU. The flag is read by the
-        // tap on the next trigger chord.
+        // affects trigger suppression, and is also the moment the WindowServer
+        // can drop the panel's canJoinAllSpaces sticky tag (a full-screen app
+        // quitting destroys its Space — #46/#64). While the panel is hidden,
+        // `isOnActiveSpace` reports whether ordering it in would land on the
+        // active Space, so a false here means the tag is stale — re-assert it
+        // before the next reveal. present() re-checks after order-front as the
+        // backstop.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.updateTriggerSuppression() }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateTriggerSuppression()
+                if self.phase != .visible, !self.panel.isOnActiveSpace {
+                    Log.ui.info("stale Space tag on hidden panel — re-asserting canJoinAllSpaces (#46/#64)")
+                    self.panel.reassertAllSpacesTag()
+                }
+            }
         }
     }
 
