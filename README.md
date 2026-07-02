@@ -42,13 +42,16 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 - **Window switching** — `` ⌘+ ` `` cycles windows of the front app.
 - **Tap or hold** — tap to switch instantly, hold to open the switcher.
 - **Scroll to switch** — spin the mouse wheel to move through apps.
-- **Multi-monitor** — opens on the screen under the cursor.
+- **Multi-monitor** — opens on the display you're actively working on.
+- **Stay open** — optionally keep the switcher open after you release ⌘: browse at your pace, confirm with Return or a click, dismiss with Esc.
+- **Reverse step** — hold Shift to keep stepping backwards through the list (or turn the tap-Shift reverse off).
+- **Keyboard-only** — optionally turn off selecting with mouse hover and mouse click.
 
 ### Window & Tab Management
 
 - **Window titles** — show each window's title under its icon in Grid and Previews.
 - **Tab drill-in** — press `\` on a row whose window has tabs to pick a specific tab (Safari, Chrome, Arc, Brave, Edge, Vivaldi, Opera, Dia, Finder, Terminal, iTerm).
-- **Tabs as rows** — optionally surface each native or browser tab as its own row, not just behind the `\` peek.
+- **Tabs as rows** — optionally surface each native or browser tab as its own row, not just behind the `\` peek — with an experimental most-recently-used tab order and a clear hint when Safari/Chrome need automation permission.
 - **Quick actions** — quit, close, minimize, maximize, hide inline.
 - **Hover actions** — quick-action buttons appear on hover: close, minimize, zoom, hide, quit, force-quit.
 - **Window management** — tile windows to halves or corners, maximize, or center with `⌃⌘` arrows; press the tile key again to cycle ½ → ⅔ → ⅓ widths.
@@ -56,9 +59,9 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 
 ### Filtering & Organization
 
-- **Sort order** — order apps by recents (MRU), alphabetically, or launch order.
-- **Scoped shortcuts** — a global hotkey that opens the switcher pre-filtered to all windows, the current Space, the current app's windows, or minimized only.
-- **Current Space only** — show just the windows on the Space you're on.
+- **Sort order** — order apps by recents (MRU), alphabetically, or launch order — or by most-recent windows, mixing every app's windows by when you last used them.
+- **Scoped shortcuts** — add as many global hotkeys as you like, each opening the switcher pre-filtered (all windows, the current Space, Visible Spaces, the current app's windows, or minimized only), and each with its own layout, sorting, filters, and colors independent of the global settings.
+- **Show windows from** — All Spaces, the current Space only, or **Visible Spaces** — made for multiple monitors: lists what's on screen across all your displays and hides windows parked on background desktops.
 - **Minimized & hidden** — include minimized windows, hidden and windowless apps.
 - **Pin & filter** — keep favorites up top, hide the rest.
 - **Per-app rules** — hide an app, or have it ignore ⌘Tab always or only when fullscreen.
@@ -80,6 +83,7 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 
 - **Liquid Glass** — system material on macOS 26.
 - **Theming** — panel opacity, corner radius, background material, and a custom accent color.
+- **Preview titles** — choose how window titles align in previews and whether the selected name is bold.
 - **Configurable** — custom hotkey, size, scale, layout, grid columns, and reveal delay.
 
 ### Gestures & Feedback

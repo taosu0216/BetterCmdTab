@@ -45,10 +45,13 @@ const featureGroups: Array<{ label: string; rows: Array<[string, string]> }> = [
       ["Window switching", "Cmd+` cycles windows of the front app"],
       [
         "Scoped shortcuts",
-        "a global hotkey opens the switcher filtered to all windows, this Space, the current app, or minimized only",
+        "add as many hotkeys as you like, each opening the switcher pre-filtered (all windows, this Space, Visible Spaces, the current app, or minimized) with its own layout, sorting, filters, and colors",
       ],
       ["Tap or hold", "tap to switch instantly, hold to open the switcher"],
+      ["Stay open", "optionally keep the switcher open after you release Cmd: confirm with Return or a click, dismiss with Esc"],
+      ["Reverse step", "hold Shift to keep stepping backwards, or turn the tap-Shift reverse off"],
       ["Scroll to switch", "spin the mouse wheel to move through apps"],
+      ["Keyboard only", "optionally turn off selecting with mouse hover and mouse click"],
       ["App hotkeys", "assign a global shortcut to focus or launch a chosen app (9 slots)"],
     ],
   },
@@ -57,9 +60,10 @@ const featureGroups: Array<{ label: string; rows: Array<[string, string]> }> = [
     rows: [
       ["Three layouts", "classic list, grid of icons, or live window previews"],
       ["Window titles", "show each window's title under its icon in Grid and Previews"],
+      ["Preview titles", "choose how window titles align in previews and whether the selected name is bold"],
       ["Liquid Glass", "system material on macOS 26"],
       ["Theming", "panel opacity, corner radius, background material, and a custom accent color"],
-      ["Multi-monitor", "opens on the screen under the cursor"],
+      ["Multi-monitor", "opens on the display you're actively working on"],
     ],
   },
   {
@@ -68,7 +72,7 @@ const featureGroups: Array<{ label: string; rows: Array<[string, string]> }> = [
       ["Tab drill-in", "press \\ to pick a tab from Safari, Chrome, Arc, Finder, Terminal, …"],
       [
         "Tabs as rows",
-        "optionally surface each native or browser tab as its own row, not just behind the \\ peek",
+        "surface each native or browser tab as its own row, with an experimental most-recently-used order and a hint when Safari/Chrome need automation permission",
       ],
     ],
   },
@@ -92,7 +96,7 @@ const featureGroups: Array<{ label: string; rows: Array<[string, string]> }> = [
   {
     label: "Filter & organize",
     rows: [
-      ["Sort order", "order apps by recents, alphabetically, or launch order"],
+      ["Sort order", "order apps by recents, alphabetically, launch order, or most-recent windows across every app"],
       ["Minimized & hidden", "include minimized windows, hidden and windowless apps"],
       ["Pin & filter", "keep favorites up top, hide the rest"],
       ["Per-app rules", "hide an app, or have it ignore Cmd+Tab always or only when fullscreen"],
@@ -102,7 +106,7 @@ const featureGroups: Array<{ label: string; rows: Array<[string, string]> }> = [
     label: "Spaces & indicators",
     rows: [
       ["Instant Spaces", "switch Spaces with no animation"],
-      ["Current Space only", "show just the windows on the Space you're on"],
+      ["Show windows from", "All Spaces, the current Space, or Visible Spaces — made for multiple monitors, showing what's on screen across all displays"],
       ["Unread badges", "Dock badge counts, in the switcher"],
       ["Audio indicator", "flags apps playing sound"],
     ],
