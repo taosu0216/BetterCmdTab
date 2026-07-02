@@ -2,8 +2,9 @@ import AppKit
 import BetterSettings
 import BetterShortcuts
 
+/// Profiles pane (tab id stays "shortcuts" so saved tab selection survives).
 @MainActor
-final class ShortcutsSettingsViewController: SettingsTabViewController {
+final class ProfilesSettingsViewController: SettingsTabViewController {
 
     // Unified AltTab-style switcher-shortcut editor (#74): the list of switcher
     // shortcuts (profiles) + each one's inline per-shortcut options.

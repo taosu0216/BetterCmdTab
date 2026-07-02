@@ -109,6 +109,9 @@ final class WindowsSettingsViewController: SettingsTabViewController {
         }
         controller.onDidDismiss = { [weak self] in self?.excludedHideAppsSheet = nil }
         excludedHideAppsSheet = controller
+        // Same memory-release tracking the Apps pane gives its picker sheets, so
+        // a tab unload can't strand an open sheet.
+        trackForRelease(controller)
         controller.present(asSheetFor: window)
     }
 }

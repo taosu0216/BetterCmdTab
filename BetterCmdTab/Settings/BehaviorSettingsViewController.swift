@@ -2,16 +2,19 @@ import AppKit
 import BetterSettings
 import Combine
 
-/// Behavior pane — which display it opens on, what it lists (Contents), tab
-/// drill-in, type-to-filter search, selection navigation, and hover actions.
+/// Behavior pane (tab id stays "switcher" so saved tab selection survives) —
+/// which display it opens on, the quick-switch delay, what it lists (Contents),
+/// tab drill-in, type-to-filter search, and keyboard/mouse interaction.
 /// The visual options live under the Appearance tab; per-app rules and pinning
 /// live under the Apps tab.
 @MainActor
-final class SwitcherSettingsViewController: SettingsTabViewController {
+final class BehaviorSettingsViewController: SettingsTabViewController {
 
     // Display
     private let displayMonitorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let displayModes: [SwitcherDisplayMode] = SwitcherDisplayMode.allCases
+    private let delaySlider = NSSlider()
+    private let delayValueLabel = NSTextField(labelWithString: "")
 
     // Contents — what apps/windows the switcher lists (moved here from Appearance:
     // these decide *which* windows show, which is behavior, not look).
@@ -42,17 +45,19 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
     private let searchModePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let searchDismissModes: [SearchDismissMode] = SearchDismissMode.allCases
 
-    // Navigation
+    // Keyboard
     private let stayOpenSwitch = NSSwitch()
     private let shiftTapBackSwitch = NSSwitch()
+    private let vimNavSwitch = NSSwitch()
+
+    // Mouse
     private let scrollSwitch = NSSwitch()
     private let scrollReverseSwitch = NSSwitch()
     private let clickDismissSwitch = NSSwitch()
-    private let vimNavSwitch = NSSwitch()
     private let hoverSelectSwitch = NSSwitch()
     private let clickSelectSwitch = NSSwitch()
 
-    // Hover actions
+    // Mouse — hover actions
     private let hoverSwitch = NSSwitch()
     private let hoverCloseSwitch = NSSwitch()
     private let hoverMinimizeSwitch = NSSwitch()
@@ -77,6 +82,32 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         addRow(to: display, title: String(localized: "Show switcher on"),
                subtitle: String(localized: "Choose which monitor the switcher opens on when you have more than one display."),
                accessory: displayMonitorPopup, searchItemID: SearchID.displayMonitor)
+
+        // Quick-switch delay — moved here from Appearance: it changes *when* the
+        // panel appears (timing), not how it looks.
+        delaySlider.minValue = Double(Preferences.revealDelayRange.lowerBound)
+        delaySlider.maxValue = Double(Preferences.revealDelayRange.upperBound)
+        delaySlider.isContinuous = true
+        delaySlider.controlSize = .small
+        delaySlider.target = self
+        delaySlider.action = #selector(delayChanged(_:))
+        delaySlider.translatesAutoresizingMaskIntoConstraints = false
+        delayValueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        delayValueLabel.textColor = .secondaryLabelColor
+        delayValueLabel.alignment = .right
+        delayValueLabel.translatesAutoresizingMaskIntoConstraints = false
+        delayValueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let delayStack = NSStackView(views: [delaySlider, delayValueLabel])
+        delayStack.orientation = .horizontal
+        delayStack.spacing = 8
+        delayStack.alignment = .centerY
+        NSLayoutConstraint.activate([
+            delaySlider.widthAnchor.constraint(equalToConstant: 140),
+            delayValueLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
+        ])
+        addRow(to: display, title: String(localized: "Quick-switch delay"),
+               subtitle: String(localized: "Tap to switch instantly; hold longer to open the switcher."),
+               accessory: delayStack, searchItemID: SearchID.quickSwitchDelay)
 
         // Contents section — what kinds of windows/apps appear in the switcher.
         let contents = addSection(title: String(localized: "Contents"), anchor: SettingsAnchor.contents)
@@ -190,59 +221,63 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
                subtitle: String(localized: "Hold ⌘: release to pick. Stay open: pick with Return or the mouse."),
                accessory: searchModePopup, searchItemID: SearchID.searchMode)
 
-        // Navigation section — alternative ways to move the selection.
-        let navigation = addSection(title: String(localized: "Navigation"), anchor: SettingsAnchor.navigation)
+        // Keyboard section — key-driven ways to move and commit the selection.
+        let keyboard = addSection(title: String(localized: "Keyboard"), anchor: SettingsAnchor.keyboard)
         configureSwitch(stayOpenSwitch, action: #selector(toggleStayOpen(_:)))
-        addRow(to: navigation, title: String(localized: "Stay open after releasing the modifier"),
+        addRow(to: keyboard, title: String(localized: "Stay open after releasing the modifier"),
                subtitle: String(localized: "Keep the switcher on screen when you let go of the trigger — pick with Return, a quick-jump letter, or the mouse; Esc dismisses. A quick tap still switches instantly."),
                accessory: stayOpenSwitch, searchItemID: SearchID.stayOpen)
         configureSwitch(shiftTapBackSwitch, action: #selector(toggleShiftTapBack(_:)))
-        addRow(to: navigation, title: String(localized: "Tap Shift to step backwards"),
+        addRow(to: keyboard, title: String(localized: "Tap Shift to step backwards"),
                subtitle: String(localized: "While the switcher is open, a tap of the Shift key steps the selection backwards and holding Shift keeps stepping back until you let go — just like a held Tab. Turn this off to step back only with Shift held as you press the switch key (⌘⇧Tab)."),
                accessory: shiftTapBackSwitch, searchItemID: SearchID.shiftTapBack)
+        configureSwitch(vimNavSwitch, action: #selector(toggleVimNavigation(_:)))
+        addRow(to: keyboard, title: String(localized: "Vim keys (h j k l)"),
+               subtitle: String(localized: "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters."),
+               accessory: vimNavSwitch, searchItemID: SearchID.vimNavigation)
+
+        // Mouse section — pointer-driven selection, dismissal, scrolling, and the
+        // hover action buttons (formerly their own section).
+        let mouse = addSection(title: String(localized: "Mouse"), anchor: SettingsAnchor.mouse)
         configureSwitch(scrollSwitch, action: #selector(toggleScroll(_:)))
-        addRow(to: navigation, title: String(localized: "Switch with mouse scroll"),
+        addRow(to: mouse, title: String(localized: "Switch with mouse scroll"),
                subtitle: String(localized: "Scroll up/down on a mouse wheel to move the selection while the switcher is open. Trackpads use the three-finger swipe instead."),
                accessory: scrollSwitch, searchItemID: SearchID.scroll)
         configureSwitch(scrollReverseSwitch, action: #selector(toggleScrollReverse(_:)))
-        addRow(to: navigation, title: String(localized: "Reverse scroll direction"),
+        addRow(to: mouse, title: String(localized: "Reverse scroll direction"),
                subtitle: String(localized: "Scroll up to move forward instead of down."),
                accessory: scrollReverseSwitch, searchItemID: SearchID.scrollReverse)
         configureSwitch(clickDismissSwitch, action: #selector(toggleClickDismiss(_:)))
-        addRow(to: navigation, title: String(localized: "Click outside to dismiss"),
+        addRow(to: mouse, title: String(localized: "Click outside to dismiss"),
                subtitle: String(localized: "Click anywhere outside the switcher to close it, leaving the current window focused."),
                accessory: clickDismissSwitch, searchItemID: SearchID.clickDismiss)
-        configureSwitch(vimNavSwitch, action: #selector(toggleVimNavigation(_:)))
-        addRow(to: navigation, title: String(localized: "Vim keys (h j k l)"),
-               subtitle: String(localized: "Use h / j / k / l like the arrow keys while the switcher is open. h overrides the Hide binding and j / k / l override letter-jump; search mode still types those letters."),
-               accessory: vimNavSwitch, searchItemID: SearchID.vimNavigation)
         configureSwitch(hoverSelectSwitch, action: #selector(toggleHoverSelect(_:)))
-        addRow(to: navigation, title: String(localized: "Select window on hover"),
+        addRow(to: mouse, title: String(localized: "Select window on hover"),
                subtitle: String(localized: "Move the selection to the row your pointer is over. Off keeps the keyboard selection put so the mouse can't change it by accident."),
                accessory: hoverSelectSwitch)
         configureSwitch(clickSelectSwitch, action: #selector(toggleClickSelect(_:)))
-        addRow(to: navigation, title: String(localized: "Select window on click"),
+        addRow(to: mouse, title: String(localized: "Select window on click"),
                subtitle: String(localized: "Click a row to switch to that window. Off ignores clicks inside the switcher so the mouse can't pick a window — the tab strip and hover actions still work."),
                accessory: clickSelectSwitch)
 
-        // Hover actions section — buttons revealed on a row under the pointer.
-        let actions = addSection(title: String(localized: "Hover actions"), anchor: SettingsAnchor.actions)
+        // Hover actions — buttons revealed on a row under the pointer.
+        addDivider(to: mouse)
         configureSwitch(hoverSwitch, action: #selector(toggleHover(_:)))
-        addRow(to: actions, title: String(localized: "Action buttons on hover"),
+        addRow(to: mouse, title: String(localized: "Action buttons on hover"),
                subtitle: String(localized: "Reveal quick buttons on the row your pointer is over."),
                accessory: hoverSwitch, searchItemID: SearchID.hoverActions)
         configureSwitch(hoverCloseSwitch, action: #selector(toggleHoverClose(_:)))
-        addRow(to: actions, title: String(localized: "Close window"), accessory: hoverCloseSwitch)
+        addRow(to: mouse, title: String(localized: "Close window"), accessory: hoverCloseSwitch)
         configureSwitch(hoverMinimizeSwitch, action: #selector(toggleHoverMinimize(_:)))
-        addRow(to: actions, title: String(localized: "Minimize window"), accessory: hoverMinimizeSwitch)
+        addRow(to: mouse, title: String(localized: "Minimize window"), accessory: hoverMinimizeSwitch)
         configureSwitch(hoverMaximizeSwitch, action: #selector(toggleHoverMaximize(_:)))
-        addRow(to: actions, title: String(localized: "Zoom window"), accessory: hoverMaximizeSwitch)
+        addRow(to: mouse, title: String(localized: "Zoom window"), accessory: hoverMaximizeSwitch)
         configureSwitch(hoverHideSwitch, action: #selector(toggleHoverHide(_:)))
-        addRow(to: actions, title: String(localized: "Hide app"), accessory: hoverHideSwitch)
+        addRow(to: mouse, title: String(localized: "Hide app"), accessory: hoverHideSwitch)
         configureSwitch(hoverQuitSwitch, action: #selector(toggleHoverQuit(_:)))
-        addRow(to: actions, title: String(localized: "Quit app"), accessory: hoverQuitSwitch)
+        addRow(to: mouse, title: String(localized: "Quit app"), accessory: hoverQuitSwitch)
         configureSwitch(hoverForceQuitSwitch, action: #selector(toggleHoverForceQuit(_:)))
-        addRow(to: actions, title: String(localized: "Force quit app"),
+        addRow(to: mouse, title: String(localized: "Force quit app"),
                subtitle: String(localized: "Sends SIGKILL — for hung apps that ignore Quit. ⌘+⌥+Q always works regardless."),
                accessory: hoverForceQuitSwitch)
 
@@ -270,6 +305,7 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
 
         let prefs = Preferences.shared
         if let i = displayModes.firstIndex(of: prefs.switcherDisplayMode) { displayMonitorPopup.selectItem(at: i) }
+        applyDelay(prefs.revealDelayMs)
         minimizedSwitch.state = prefs.showMinimizedWindows ? .on : .off
         hiddenSwitch.state = prefs.showHiddenApps ? .on : .off
         windowlessSwitch.state = prefs.showWindowlessApps ? .on : .off
@@ -311,11 +347,15 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.selectSearchMode($0) }
             .store(in: &cancellables)
-        // Keep the slider in sync if the value changes underneath us (e.g. a
+        // Keep the sliders in sync if the values change underneath us (e.g. a
         // settings import calls reloadFromDefaults while this pane is open).
         prefs.$letterChainTimeoutMs
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.applyLetterTimeout($0) }
+            .store(in: &cancellables)
+        prefs.$revealDelayMs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.applyDelay($0) }
             .store(in: &cancellables)
     }
 
@@ -328,6 +368,16 @@ final class SwitcherSettingsViewController: SettingsTabViewController {
         let idx = displayMonitorPopup.indexOfSelectedItem
         guard displayModes.indices.contains(idx) else { return }
         Preferences.shared.switcherDisplayMode = displayModes[idx]
+    }
+
+    @objc private func delayChanged(_ sender: NSSlider) {
+        Preferences.shared.revealDelayMs = sender.integerValue
+        applyDelay(sender.integerValue)
+    }
+
+    private func applyDelay(_ ms: Int) {
+        if Int(delaySlider.intValue) != ms { delaySlider.integerValue = ms }
+        delayValueLabel.stringValue = "\(ms) ms"
     }
 
     @objc private func toggleTabDrill(_ sender: NSSwitch) {

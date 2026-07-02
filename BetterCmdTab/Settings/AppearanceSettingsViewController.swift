@@ -10,8 +10,6 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
     private var titleAlignmentRadio: SettingsRadioGroupView!
     private let gridPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let accentPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let delaySlider = NSSlider()
-    private let delayValueLabel = NSTextField(labelWithString: "")
     private let windowTitleSwitch = NSSwitch()
     private let appNamesSwitch = NSSwitch()
     private let boldSelectedSwitch = NSSwitch()
@@ -30,77 +28,60 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
     private let accents: [SwitcherAccent] = SwitcherAccent.allCases
 
     override func setupContent() {
-        let section = addSection(title: String(localized: "Switcher"), anchor: SettingsAnchor.appearance)
+        // Layout section — the panel's shape: which layout, how big, how many
+        // grid columns.
+        let layout = addSection(title: String(localized: "Layout"), anchor: SettingsAnchor.appearanceLayout)
 
         layoutRadio = makeLayoutRadio()
-        addRow(to: section, title: String(localized: "Layout"), accessory: layoutRadio, searchItemID: SearchID.layout)
+        addRow(to: layout, title: String(localized: "Layout"), accessory: layoutRadio, searchItemID: SearchID.layout)
 
         sizeRadio = makeSizeRadio()
-        addRow(to: section, title: String(localized: "Size"), accessory: sizeRadio, searchItemID: SearchID.size)
+        addRow(to: layout, title: String(localized: "Size"), accessory: sizeRadio, searchItemID: SearchID.size)
 
         configurePopup(gridPopup, titles: gridValues.map { $0 == 0 ? String(localized: "Automatic") : "\($0)" }, action: #selector(gridChanged))
-        addRow(to: section, title: String(localized: "Grid columns"),
+        addRow(to: layout, title: String(localized: "Grid columns"),
                subtitle: String(localized: "Applies to the Grid and Previews layouts."),
                accessory: gridPopup, searchItemID: SearchID.gridColumns)
+
+        // Labels section — the text on each row/tile.
+        let labels = addSection(title: String(localized: "Labels"), anchor: SettingsAnchor.appearanceLabels)
+
+        configureSwitch(windowTitleSwitch, action: #selector(toggleWindowTitle(_:)))
+        addRow(to: labels, title: String(localized: "Show window title"),
+               subtitle: String(localized: "Show each window's title under the icon in the Grid and Previews layouts."),
+               accessory: windowTitleSwitch, searchItemID: SearchID.windowTitle)
+
+        titleAlignmentRadio = makeTitleAlignmentRadio()
+        addRow(to: labels, title: String(localized: "Title alignment"),
+               subtitle: String(localized: "Position of the title under each Previews tile."),
+               accessory: titleAlignmentRadio, searchItemID: SearchID.titleAlignment)
+
+        configureSwitch(boldSelectedSwitch, action: #selector(toggleBoldSelected(_:)))
+        addRow(to: labels, title: String(localized: "Bold selected title"),
+               subtitle: String(localized: "Make the highlighted item's title bold in the Grid and Previews layouts. Off only brightens it."),
+               accessory: boldSelectedSwitch, searchItemID: SearchID.boldSelected)
+
+        configureSwitch(appNamesSwitch, action: #selector(toggleApplicationNames(_:)))
+        addRow(to: labels, title: String(localized: "Show application names"),
+               subtitle: String(localized: "Hide the app name in every layout; identify apps by their icon."),
+               accessory: appNamesSwitch, searchItemID: SearchID.applicationNames)
+
+        // Panel section — the chrome: accent, translucency, rounding.
+        let panel = addSection(title: String(localized: "Panel"), anchor: SettingsAnchor.appearancePanel)
 
         configurePopup(accentPopup, titles: accents.map(\.displayName), action: #selector(accentChanged))
         for (i, accent) in accents.enumerated() {
             accentPopup.item(at: i)?.image = Self.swatch(for: accent)
         }
-        addRow(to: section, title: String(localized: "Accent color"),
+        addRow(to: panel, title: String(localized: "Accent color"),
                subtitle: String(localized: "Color of the selection highlight and jump letters."),
                accessory: accentPopup, searchItemID: SearchID.accent)
-
-        delaySlider.minValue = Double(Preferences.revealDelayRange.lowerBound)
-        delaySlider.maxValue = Double(Preferences.revealDelayRange.upperBound)
-        delaySlider.isContinuous = true
-        delaySlider.target = self
-        delaySlider.action = #selector(delayChanged(_:))
-        delaySlider.translatesAutoresizingMaskIntoConstraints = false
-
-        delayValueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        delayValueLabel.textColor = .secondaryLabelColor
-        delayValueLabel.alignment = .right
-        delayValueLabel.translatesAutoresizingMaskIntoConstraints = false
-        delayValueLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        let sliderStack = NSStackView(views: [delaySlider, delayValueLabel])
-        sliderStack.orientation = .horizontal
-        sliderStack.spacing = 8
-        sliderStack.alignment = .centerY
-        NSLayoutConstraint.activate([
-            delaySlider.widthAnchor.constraint(equalToConstant: 140),
-            delayValueLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
-        ])
-        addRow(to: section, title: String(localized: "Quick-switch delay"),
-               subtitle: String(localized: "Tap to switch instantly; hold longer to open the switcher."),
-               accessory: sliderStack, searchItemID: SearchID.quickSwitchDelay)
-
-        configureSwitch(windowTitleSwitch, action: #selector(toggleWindowTitle(_:)))
-        addRow(to: section, title: String(localized: "Show window title"),
-               subtitle: String(localized: "Show each window's title under the icon in the Grid and Previews layouts."),
-               accessory: windowTitleSwitch, searchItemID: SearchID.windowTitle)
-
-        titleAlignmentRadio = makeTitleAlignmentRadio()
-        addRow(to: section, title: String(localized: "Title alignment"),
-               subtitle: String(localized: "Position of the title under each Previews tile."),
-               accessory: titleAlignmentRadio, searchItemID: SearchID.titleAlignment)
-
-        configureSwitch(boldSelectedSwitch, action: #selector(toggleBoldSelected(_:)))
-        addRow(to: section, title: String(localized: "Bold selected title"),
-               subtitle: String(localized: "Make the highlighted item's title bold in the Grid and Previews layouts. Off only brightens it."),
-               accessory: boldSelectedSwitch, searchItemID: SearchID.boldSelected)
-
-        configureSwitch(appNamesSwitch, action: #selector(toggleApplicationNames(_:)))
-        addRow(to: section, title: String(localized: "Show application names"),
-               subtitle: String(localized: "Hide the app name in every layout; identify apps by their icon."),
-               accessory: appNamesSwitch, searchItemID: SearchID.applicationNames)
 
         let opacityStack = makeSliderControl(
             opacitySlider, valueLabel: opacityValueLabel,
             range: Preferences.panelOpacityRange, action: #selector(opacityChanged(_:))
         )
-        addRow(to: section, title: String(localized: "Panel opacity"),
+        addRow(to: panel, title: String(localized: "Panel opacity"),
                subtitle: String(localized: "Translucency of the switcher panel."),
                accessory: opacityStack, searchItemID: SearchID.opacity)
 
@@ -108,12 +89,13 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
             radiusSlider, valueLabel: radiusValueLabel,
             range: Preferences.panelCornerRadiusRange, action: #selector(radiusChanged(_:))
         )
-        addRow(to: section, title: String(localized: "Corner radius"),
+        addRow(to: panel, title: String(localized: "Corner radius"),
                subtitle: String(localized: "Rounding of the panel's corners. Automatic follows the panel size."),
                accessory: radiusStack, searchItemID: SearchID.cornerRadius)
 
-        // The Contents options (what windows/apps the switcher lists) now live
-        // under the Behavior tab — they decide *which* windows show, not the look.
+        // The Contents options (what windows/apps the switcher lists) and the
+        // quick-switch delay now live under the Behavior tab — they decide what
+        // shows and when, not the look.
     }
 
     private func configureSwitch(_ toggle: NSSwitch, action: Selector) {
@@ -122,8 +104,8 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
         toggle.action = action
     }
 
-    /// Builds a horizontal slider + right-aligned monospaced value label, matching
-    /// the quick-switch delay control. The caller wires `viewWillAppear` sync.
+    /// Builds a horizontal slider + right-aligned monospaced value label. The
+    /// caller wires `viewWillAppear` sync.
     private func makeSliderControl(_ slider: NSSlider, valueLabel: NSTextField, range: ClosedRange<Int>, action: Selector) -> NSView {
         slider.minValue = Double(range.lowerBound)
         slider.maxValue = Double(range.upperBound)
@@ -240,10 +222,6 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.selectGrid($0) }
             .store(in: &cancellables)
-        prefs.$revealDelayMs
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.applyDelay($0) }
-            .store(in: &cancellables)
         prefs.$accentChoice
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.selectAccent($0) }
@@ -298,7 +276,6 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
         selectLayout(prefs.switcherLayoutMode)
         selectSize(prefs.panelSize)
         selectGrid(prefs.gridMaxColumns)
-        applyDelay(prefs.revealDelayMs)
         selectAccent(prefs.accentChoice)
         windowTitleSwitch.state = prefs.showWindowTitleLabel ? .on : .off
         selectTitleAlignment(prefs.previewTitleAlignment)
@@ -336,11 +313,6 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
         }
     }
 
-    private func applyDelay(_ ms: Int) {
-        if Int(delaySlider.intValue) != ms { delaySlider.integerValue = ms }
-        delayValueLabel.stringValue = "\(ms) ms"
-    }
-
     private func selectAccent(_ accent: SwitcherAccent) {
         if let i = accents.firstIndex(of: accent) { accentPopup.selectItem(at: i) }
     }
@@ -357,10 +329,6 @@ final class AppearanceSettingsViewController: SettingsTabViewController {
         let choice = accents[i]
         Preferences.shared.accentChoice = choice
         if choice == .custom { presentColorPanel() }
-    }
-
-    @objc private func delayChanged(_ sender: NSSlider) {
-        Preferences.shared.revealDelayMs = sender.integerValue
     }
 
     @objc private func toggleWindowTitle(_ sender: NSSwitch) {
