@@ -35,3 +35,27 @@ struct ActivatorFocusSettledTests {
         #expect(!Activator.focusSettled(targetWid: 0, focusedWid: 0, sameElement: false))
     }
 }
+
+/// Covers the pure raise-id fallback (`Activator.resolvedWindowID`): the live
+/// `_AXUIElementGetWindow` resolve wins when it succeeded; the enumeration-time
+/// cached id (`SwitcherRow.cgWindowID`) backs it up when the AX element has
+/// gone stale — the Electron fast-switch case where the app activated but its
+/// window stayed behind because the SLPS raise was skipped on `wid == 0`.
+@Suite("Activator resolved-window-id fallback")
+struct ActivatorResolvedWindowIDTests {
+
+    @Test("live resolve wins when available")
+    func liveWins() {
+        #expect(Activator.resolvedWindowID(live: 42, cached: 7) == 42)
+    }
+
+    @Test("stale element falls back to the cached id")
+    func staleFallsBackToCached() {
+        #expect(Activator.resolvedWindowID(live: 0, cached: 7) == 7)
+    }
+
+    @Test("nothing resolved stays zero")
+    func nothingResolvedStaysZero() {
+        #expect(Activator.resolvedWindowID(live: 0, cached: 0) == 0)
+    }
+}

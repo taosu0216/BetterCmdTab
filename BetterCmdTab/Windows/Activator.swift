@@ -287,7 +287,7 @@ enum Activator {
         case .launchable(let installed):
             launch(installed)
         case .running(let app):
-            activateRunning(app: app, window: row.window, isFullscreen: row.isFullscreen, instantSpace: instantSpace)
+            activateRunning(app: app, window: row.window, cachedWid: row.cgWindowID, isFullscreen: row.isFullscreen, instantSpace: instantSpace)
         case .recentlyClosed(let entry):
             reopen(entry)
         }
@@ -327,7 +327,7 @@ enum Activator {
     /// activation commits on main, and all readers run on main.
     private static var activationGeneration: UInt64 = 0
 
-    private static func activateRunning(app: NSRunningApplication, window: AXUIElement?, isFullscreen: Bool, instantSpace: Bool) {
+    private static func activateRunning(app: NSRunningApplication, window: AXUIElement?, cachedWid: CGWindowID, isFullscreen: Bool, instantSpace: Bool) {
         let pid = app.processIdentifier
 
         if app.isHidden {
@@ -356,7 +356,7 @@ enum Activator {
             AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }
 
-        let wid = PrivateAPI.cgWindowId(of: window)
+        let wid = resolvedWindowID(live: PrivateAPI.cgWindowId(of: window), cached: cachedWid)
 
         // Jump to the window's Space instantly (no slide) before raising, so the
         // raise lands on the now-current Space instead of animating across. This
@@ -427,6 +427,19 @@ enum Activator {
         }
     }
 
+    /// The WindowServer id to raise: the live `_AXUIElementGetWindow` resolve
+    /// when it succeeded, else the id cached at enumeration time
+    /// (`SwitcherRow.cgWindowID`). Chromium/Electron apps invalidate AX window
+    /// elements aggressively and go deaf to AX while busy, so on a fast switch
+    /// the live resolve can return 0 from a stale element — which used to skip
+    /// the SLPS raise entirely and leave the app active with its window still
+    /// behind. The cached id keeps the WindowServer-level raise working; it
+    /// needs no cooperation from the target's AX server. Pure, split out for
+    /// unit tests.
+    static func resolvedWindowID(live: CGWindowID, cached: CGWindowID) -> CGWindowID {
+        live != 0 ? live : cached
+    }
+
     /// Pure decision core of `verifyFocusSettled`, split out for unit tests:
     /// did focus land on the target window? Compare by CGWindowID when both
     /// sides resolved one; otherwise fall back to AX element identity. An
@@ -443,7 +456,7 @@ enum Activator {
      /// others (Safari for non-current tabs) only flip selection via the
      /// `kAXSelectedAttribute` write. Try the press first, then the attribute —
      /// neither call short-circuits, so doing both is safe.
-    static func activateTab(in app: NSRunningApplication, window: AXUIElement, tab: AXUIElement, instantSpace: Bool) {
+    static func activateTab(in app: NSRunningApplication, window: AXUIElement, tab: AXUIElement, cachedWid: CGWindowID = 0, instantSpace: Bool) {
         let pid = app.processIdentifier
 
         if app.isHidden {
@@ -456,7 +469,7 @@ enum Activator {
             AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }
 
-        let wid = PrivateAPI.cgWindowId(of: window)
+        let wid = resolvedWindowID(live: PrivateAPI.cgWindowId(of: window), cached: cachedWid)
         let postedSpaceSwitch = instantSpace && wid != 0 && PrivateAPI.switchToSpace(ofWindow: wid)
 
         activateProcess(app)

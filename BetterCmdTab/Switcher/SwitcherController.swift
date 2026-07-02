@@ -3991,12 +3991,16 @@ final class SwitcherController: SwitcherViewDelegate {
             }
         case .accessibility:
             if let tab = targetElement {
-                Activator.activateTab(in: app, window: window, tab: tab, instantSpace: instantSpace)
+                Activator.activateTab(in: app, window: window, tab: tab, cachedWid: row.cgWindowID, instantSpace: instantSpace)
             }
         case .windows:
             // The chosen tab is a real NSWindow — raising it selects that tab.
             if let tabWindow = targetElement {
-                let tabRow = SwitcherRow(app: app, window: tabWindow, windowTitle: row.windowTitle, isMinimized: false)
+                // Carry the tab window's enumeration-time WindowServer id so the
+                // SLPS raise survives a stale AX element (Electron; see
+                // `Activator.resolvedWindowID`).
+                let cachedWid = row.tabWindows.first(where: { CFEqual($0.ref, tabWindow) })?.cgWindowID ?? 0
+                let tabRow = SwitcherRow(app: app, window: tabWindow, windowTitle: row.windowTitle, isMinimized: false, cgWindowID: cachedWid)
                 Activator.activate(tabRow, instantSpace: instantSpace)
             }
         }
