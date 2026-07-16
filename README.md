@@ -19,7 +19,8 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 <sub>
   <a href="#install">Install</a> ·
   <a href="#features">Features</a> ·
-  <a href="#build-from-source">Build</a> ·
+  <a href="#this-fork">This fork</a> ·
+  <a href="#build--run-locally-this-fork">Build & run locally</a> ·
   <a href="#contributing">Contribute</a>
 </sub>
 
@@ -95,7 +96,95 @@ Fast · Native · Liquid Glass · Zero telemetry · Free forever
 - **Hide from screen sharing** — keep the switcher out of screen recordings and shared screens. Needs macOS 14.6+.
 - **Export & import** — back up and move your whole setup as a versioned `.cmdtab` file.
 
-## Install
+## This fork
+
+This is [@taosu0216](https://github.com/taosu0216)'s personal fork of the upstream
+[rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab). It exists to build
+and run locally with two small personal changes on top of upstream, not to publish
+releases or track upstream going forward:
+
+- **Defaults to Chinese** — `AppleLanguages` is set to `zh-Hans` so the switcher and
+  settings UI come up in Chinese out of the box, instead of following system locale.
+- **Windowless rows keep "Quit App"** — hover actions used to be all-or-nothing per
+  row: if a row had no real window (or its screenshot hadn't loaded yet), the whole
+  hover bar — including "Quit App", which doesn't need a window at all — disappeared.
+  Now "Quit App" only requires the process to be running; "Close/Minimize/Maximize"
+  still require a real window.
+
+This fork is **not kept in sync with upstream** on purpose — it's force-pushed from a
+local branch each time, so upstream history may be overwritten. If you want upstream's
+latest features/fixes, use [rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab)
+directly instead of this fork.
+
+## Build & run locally (this fork)
+
+You don't need a signed release or Homebrew for personal use — build with Xcode and
+run the `.app` it produces. This section also covers the permission pitfalls we hit
+getting it running, so you don't have to rediscover them.
+
+### 1. Build
+
+```bash
+xcodebuild -scheme "BetterCmdTab Debug" -configuration Debug build
+```
+
+The built app lands under Xcode's DerivedData, typically:
+
+```bash
+open ~/Library/Developer/Xcode/DerivedData/BetterCmdTab-*/Build/Products/Debug/"BetterCmdTab Debug.app"
+```
+
+(Or just open the project in Xcode and hit Run — same result.)
+
+### 2. Grant permissions (first launch)
+
+The app requests two *separate* macOS permissions, and it silently degrades if either
+is missing rather than erroring — so it's easy to think it's broken when it's just
+unauthorized:
+
+- **Accessibility** (`System Settings → Privacy & Security → Accessibility`) — required
+  for the global ⌘+Tab event tap and for reading the window list via the Accessibility
+  API. Without it, the switcher controller never boots at all: ⌘+Tab silently falls
+  through to macOS's native switcher, with no error dialog telling you why.
+- **Screen Recording** (`System Settings → Privacy & Security → Screen Recording`) —
+  required only for the **window-previews layout** to show real window thumbnails.
+  Without it, previews silently fall back to big app icons — which looks like a bug
+  ("why don't I see my windows?") but is actually just this permission missing.
+
+After granting either permission, **fully quit and relaunch the app** — a running
+process does not pick up a freshly granted permission.
+
+### 3. The pitfall: permissions are tied to code signature, not just the app
+
+The one mistake worth calling out explicitly: **macOS's TCC permission database keys
+Accessibility (and Screen Recording) grants to the app's code signature/identity, not
+just its bundle path or name.** In practice this means:
+
+- Re-signing the app (including Xcode's automatic ad-hoc re-sign on every rebuild)
+  can invalidate a previously granted permission if the signing identity or bundle
+  identifier changes between builds.
+- Renaming the bundle identifier, display name, or **internal executable name**
+  (`CFBundleExecutable`) counts as a new "app" to TCC, even if it's the exact same
+  binary otherwise — an already-granted permission won't carry over.
+- Symptom when this happens: ⌘+Tab was working, then after a rebuild/rename it
+  silently reverts to the native macOS switcher, with the toggle in Accessibility
+  settings showing unchecked (or a duplicate stale entry) for what looks like the
+  same app.
+
+**Fix**: if this happens, just re-grant Accessibility (and Screen Recording if you use
+previews) for the current build, quit, relaunch. If you're renaming the app for any
+reason (e.g. running it side-by-side with another BetterCmdTab install so permissions
+don't collide), change *only* the external bundle id / display name and leave the
+internal product/executable name alone — that's enough to avoid TCC treating rebuilds
+as a brand-new, unauthorized app each time.
+
+### Requirements
+
+- macOS 13.0 (Ventura) or newer, same OS build as whoever built the reference version
+  is recommended if you're sharing a build rather than building from source yourself
+- Xcode 16+ and the macOS 26 SDK (see [CLAUDE.md](CLAUDE.md) for exact build/test commands)
+
+## Install (upstream)
 
 ### Requirements
 
