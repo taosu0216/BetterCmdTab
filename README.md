@@ -1,225 +1,104 @@
-<div align="center">
+# BetterCmdTab（内部魔改版）
 
-<img src="https://github.com/user-attachments/assets/3e4bbb67-ef7d-4619-8068-1458d8460331" width="160" height="160" alt="BetterCmdTab" />
+这是 [@taosu0216](https://github.com/taosu0216) fork 的 [rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab)，在上面做了两个改动：
 
-# BetterCmdTab
+- **默认中文** — 写死 `AppleLanguages = zh-Hans`，界面和 Cmd-Tab 面板默认走中文。
+- **没有窗口的行也能点"退出 App"** — 原版逻辑是一行只要拿不到真实窗口（比如缩略图截图还没加载出来），整条 hover 操作栏（关闭/最小化/退出全部）都会消失。改成"退出 App"只要进程在跑就能点，"关闭/最小化/最大化"这些依赖真实窗口的操作才继续要求有窗口。
 
-**The ⌘+Tab macOS deserves.**
+这个 fork **不跟上游同步**，以后每次都是本地分支 force push 上来的，不用管上游有没有新提交，也不用处理冲突。想要上游最新功能就直接用 [rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab)。
 
-Fast · Native · Liquid Glass · Zero telemetry · Free forever
+下面就是同事在自己电脑上从零跑起来的全部步骤。
 
-[![image](https://img.shields.io/badge/Download_Latest_Release-F5F5F4?style=for-the-badge&logo=apple&logoColor=black)](https://github.com/rokartur/BetterCmdTab/releases/latest)
+## 0. 前置要求
 
-<p>
-  <a href="https://github.com/rokartur/BetterCmdTab/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rokartur/BetterCmdTab?include_prereleases&style=for-the-badge&label=release&color=white"></a>
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-13.0+-000?style=for-the-badge&color=white">
-  <a href="https://github.com/rokartur/BetterCmdTab/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/rokartur/BetterCmdTab/total?style=for-the-badge&color=white"></a>
-</p>
+- macOS 13.0（Ventura）或更新，跟原作者电脑同型号的话直接照抄这套流程就行
+- Xcode 16 及以上，安装好 macOS 26 SDK（App Store 装 Xcode 会自带对应 SDK）
+- 一个能访问 GitHub 的网络环境（拉依赖包要用）
 
-<sub>
-  <a href="#install">Install</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#this-fork">This fork</a> ·
-  <a href="#build--run-locally-this-fork">Build & run locally</a> ·
-  <a href="#contributing">Contribute</a>
-</sub>
+## 1. Clone 代码
 
-<br />
-<br />
+```bash
+git clone https://github.com/taosu0216/BetterCmdTab.git
+cd BetterCmdTab
+```
 
-<img src="web/public/screenshots/preview.jpg" width="49%" alt="BetterCmdTab grid of app icons layout" />
-<img src="web/public/screenshots/grid.jpg" width="49%" alt="BetterCmdTab grid of app icons layout" />
-<img src="web/public/screenshots/list.jpg" width="49%" alt="BetterCmdTab classic vertical list layout" />
+## 2. 初始化依赖
 
-</div>
+项目用的是 Swift Package Manager，依赖三个第一方包（`BetterSettings`、`BetterUpdater`、`BetterShortcuts`），不需要手动装任何东西——Xcode 打开项目或者用命令行构建时会自动联网拉取解析：
 
-## Features
+```bash
+xcodebuild -resolvePackageDependencies
+```
 
-### Switching & Navigation
+（这一步其实第 4 步 `xcodebuild build` 也会顺带做，单独跑只是想提前把网络问题暴露出来，跑起来卡住基本就是拉包的网络问题。）
 
-- **Three layouts** — classic list, grid of icons, or live window previews.
-- **Letter-prefix jump** — type a name to jump to it.
-- **Search & launch** — press `/` to fuzzy-find, or launch any installed app.
-- **Window switching** — `` ⌘+ ` `` cycles windows of the front app.
-- **Tap or hold** — tap to switch instantly, hold to open the switcher.
-- **Scroll to switch** — spin the mouse wheel to move through apps.
-- **Multi-monitor** — opens on the display you're actively working on.
-- **Stay open** — optionally keep the switcher open after you release ⌘: browse at your pace, confirm with Return or a click, dismiss with Esc.
-- **Reverse step** — hold Shift to keep stepping backwards through the list (or turn the tap-Shift reverse off).
-- **Keyboard-only** — optionally turn off selecting with mouse hover and mouse click.
+## 3. 打开项目（可选，用 Xcode 图形界面时）
 
-### Window & Tab Management
+```bash
+open BetterCmdTab.xcodeproj
+```
 
-- **Window titles** — show each window's title under its icon in Grid and Previews.
-- **Tab drill-in** — press `\` on a row whose window has tabs to pick a specific tab (Safari, Chrome, Arc, Brave, Edge, Vivaldi, Opera, Dia, Finder, Terminal, iTerm).
-- **Tabs as rows** — optionally surface each native or browser tab as its own row, not just behind the `\` peek — with an experimental most-recently-used tab order and a clear hint when Safari/Chrome need automation permission.
-- **Quick actions** — quit, close, minimize, maximize, hide inline.
-- **Hover actions** — quick-action buttons appear on hover: close, minimize, zoom, hide, quit, force-quit.
-- **Window management** — tile windows to halves or corners, maximize, or center with `⌃⌘` arrows; press the tile key again to cycle ½ → ⅔ → ⅓ widths.
-- **Move windows** — send the highlighted window to the next display.
+左上角 scheme 选择 **`BetterCmdTab Debug`**，目标选 `My Mac`。不用这一步的话直接跳到第 4 步用命令行构建。
 
-### Filtering & Organization
+## 4. 构建二进制包
 
-- **Sort order** — order apps by recents (MRU), alphabetically, or launch order — or by most-recent windows, mixing every app's windows by when you last used them.
-- **Scoped shortcuts** — add as many global hotkeys as you like, each opening the switcher pre-filtered (all windows, the current Space, Visible Spaces, the current app's windows, or minimized only), and each with its own layout, sorting, filters, and colors independent of the global settings.
-- **Show windows from** — All Spaces, the current Space only, or **Visible Spaces** — made for multiple monitors: lists what's on screen across all your displays and hides windows parked on background desktops.
-- **Minimized & hidden** — include minimized windows, hidden and windowless apps.
-- **Pin & filter** — keep favorites up top, hide the rest.
-- **Per-app rules** — hide an app, or have it ignore ⌘Tab always or only when fullscreen.
-
-### Productivity & Workflow
-
-- **App hotkeys** — assign a global shortcut to focus or launch a chosen app (9 slots).
-- **Recently closed** — reopen an app you just quit.
-- **Unread badges** — Dock badge counts, in the switcher.
-- **Audio indicator** — flags apps playing sound.
-- **Instant Spaces** — switch Spaces with no animation.
-
-### Reliability & Power Features
-
-- **Force quit** — `⌘+⌥+Q` SIGKILLs the highlighted app for when graceful Quit hangs.
-- **Secure-input survivor** — ⌘Tab and window management keep working even while a password field holds Secure Event Input.
-
-### Appearance & Customization
-
-- **Liquid Glass** — system material on macOS 26.
-- **Theming** — panel opacity, corner radius, background material, and a custom accent color.
-- **Preview titles** — choose how window titles align in previews and whether the selected name is bold.
-- **Configurable** — custom hotkey, size, scale, layout, grid columns, and reveal delay.
-
-### Gestures & Feedback
-
-- **Trackpad & haptics** — three-finger swipe to open the switcher or switch Spaces, with optional haptic and click feedback.
-
-### Privacy & Backup
-
-- **Hide from screen sharing** — keep the switcher out of screen recordings and shared screens. Needs macOS 14.6+.
-- **Export & import** — back up and move your whole setup as a versioned `.cmdtab` file.
-
-## This fork
-
-This is [@taosu0216](https://github.com/taosu0216)'s personal fork of the upstream
-[rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab). It exists to build
-and run locally with two small personal changes on top of upstream, not to publish
-releases or track upstream going forward:
-
-- **Defaults to Chinese** — `AppleLanguages` is set to `zh-Hans` so the switcher and
-  settings UI come up in Chinese out of the box, instead of following system locale.
-- **Windowless rows keep "Quit App"** — hover actions used to be all-or-nothing per
-  row: if a row had no real window (or its screenshot hadn't loaded yet), the whole
-  hover bar — including "Quit App", which doesn't need a window at all — disappeared.
-  Now "Quit App" only requires the process to be running; "Close/Minimize/Maximize"
-  still require a real window.
-
-This fork is **not kept in sync with upstream** on purpose — it's force-pushed from a
-local branch each time, so upstream history may be overwritten. If you want upstream's
-latest features/fixes, use [rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab)
-directly instead of this fork.
-
-## Build & run locally (this fork)
-
-You don't need a signed release or Homebrew for personal use — build with Xcode and
-run the `.app` it produces. This section also covers the permission pitfalls we hit
-getting it running, so you don't have to rediscover them.
-
-### 1. Build
+命令行构建：
 
 ```bash
 xcodebuild -scheme "BetterCmdTab Debug" -configuration Debug build
 ```
 
-The built app lands under Xcode's DerivedData, typically:
+构建产物在 Xcode 的 DerivedData 里：
 
 ```bash
 open ~/Library/Developer/Xcode/DerivedData/BetterCmdTab-*/Build/Products/Debug/"BetterCmdTab Debug.app"
 ```
 
-(Or just open the project in Xcode and hit Run — same result.)
+或者在 Xcode 里直接点 Run（▶）也会构建并启动，效果一样。
 
-### 2. Grant permissions (first launch)
+想要 Release 版本（体积更小、走 Liquid Glass 路径）：
 
-The app requests two *separate* macOS permissions, and it silently degrades if either
-is missing rather than erroring — so it's easy to think it's broken when it's just
-unauthorized:
-
-- **Accessibility** (`System Settings → Privacy & Security → Accessibility`) — required
-  for the global ⌘+Tab event tap and for reading the window list via the Accessibility
-  API. Without it, the switcher controller never boots at all: ⌘+Tab silently falls
-  through to macOS's native switcher, with no error dialog telling you why.
-- **Screen Recording** (`System Settings → Privacy & Security → Screen Recording`) —
-  required only for the **window-previews layout** to show real window thumbnails.
-  Without it, previews silently fall back to big app icons — which looks like a bug
-  ("why don't I see my windows?") but is actually just this permission missing.
-
-After granting either permission, **fully quit and relaunch the app** — a running
-process does not pick up a freshly granted permission.
-
-### 3. The pitfall: permissions are tied to code signature, not just the app
-
-The one mistake worth calling out explicitly: **macOS's TCC permission database keys
-Accessibility (and Screen Recording) grants to the app's code signature/identity, not
-just its bundle path or name.** In practice this means:
-
-- Re-signing the app (including Xcode's automatic ad-hoc re-sign on every rebuild)
-  can invalidate a previously granted permission if the signing identity or bundle
-  identifier changes between builds.
-- Renaming the bundle identifier, display name, or **internal executable name**
-  (`CFBundleExecutable`) counts as a new "app" to TCC, even if it's the exact same
-  binary otherwise — an already-granted permission won't carry over.
-- Symptom when this happens: ⌘+Tab was working, then after a rebuild/rename it
-  silently reverts to the native macOS switcher, with the toggle in Accessibility
-  settings showing unchecked (or a duplicate stale entry) for what looks like the
-  same app.
-
-**Fix**: if this happens, just re-grant Accessibility (and Screen Recording if you use
-previews) for the current build, quit, relaunch. If you're renaming the app for any
-reason (e.g. running it side-by-side with another BetterCmdTab install so permissions
-don't collide), change *only* the external bundle id / display name and leave the
-internal product/executable name alone — that's enough to avoid TCC treating rebuilds
-as a brand-new, unauthorized app each time.
-
-### Requirements
-
-- macOS 13.0 (Ventura) or newer, same OS build as whoever built the reference version
-  is recommended if you're sharing a build rather than building from source yourself
-- Xcode 16+ and the macOS 26 SDK (see [CLAUDE.md](CLAUDE.md) for exact build/test commands)
-
-## Install (upstream)
-
-### Requirements
-
-- macOS 13.0 (Ventura) or newer
-- Accessibility permission
-
-### Homebrew
 ```bash
-brew install --cask bettercmdtab
+xcodebuild -scheme "BetterCmdTab" -configuration Release build
 ```
 
-### Download
+## 5. 给权限
 
-Grab the latest signed `.dmg` from the [Releases page](https://github.com/rokartur/BetterCmdTab/releases), open it, drag `BetterCmdTab.app` to `/Applications`, and launch.
+第一次启动，App 需要两个权限。**这两个权限缺一个都不会报错，只会"表现得很奇怪"**，容易误以为是 bug：
 
-On first launch macOS will ask for **Accessibility** permission — this is required for the global ⌘+Tab event tap and for reading window lists via the Accessibility API. Grant it under `System Settings → Privacy & Security → Accessibility`.
+| 权限 | 在哪开 | 缺了会怎样 |
+|---|---|---|
+| **辅助功能（Accessibility）** | 系统设置 → 隐私与安全性 → 辅助功能 | 没这个权限，Cmd-Tab 的核心控制器根本不会启动，按 ⌘Tab 会一直是 macOS 原生切换器，没有任何提示 |
+| **屏幕录制（Screen Recording）** | 系统设置 → 隐私与安全性 → 屏幕录制 | 只影响"窗口预览"布局：拿不到真实窗口截图，会自动退化成显示一个个大图标，看起来像没截到图但其实就是缺这个权限 |
 
-### Build from source
+操作方式：在对应权限列表里找到这个 App（首次启动系统一般会自动弹出授权提示，找不到就手动点 `+` 把 App 加进去），打开开关。
 
-If you prefer building it yourself from source, see [this section in CONTRIBUTING.md](CONTRIBUTING.md#Building) for instructions.
+**开完权限之后，一定要把 App 完全退出再重新打开**——正在跑的进程不会自动感知到刚授予的权限。
 
-## Privacy
+### 权限相关的坑（踩过的，务必注意）
 
-BetterCmdTab does not collect, transmit, or store any data. There is no telemetry, no crash reporting service, no analytics SDK, and no account. The only network requests it makes are to `api.github.com` and `github.com` when checking for updates, and only when you ask it to.
+macOS 的权限系统（TCC）**是绑定在 App 的代码签名/身份上的，不是绑定在路径或名字上**。这意味着：
 
-## Contributing
+- 每次用 Xcode 重新构建，都会重新做一次 ad-hoc 签名。正常情况下（bundle id、可执行文件名都没变）签名身份是稳定的，权限不会掉。
+- 但如果改了 **bundle identifier**、显示名，或者**包内可执行文件名**（`CFBundleExecutable`），哪怕二进制内容完全一样，macOS 也会当成一个全新的、没授权过的 App。
+- 典型症状：Cmd-Tab 明明已经生效了，结果重新构建/改名之后突然又变回了原生切换器，去辅助功能设置里看，开关变成未勾选（或者多出来一条一模一样名字但状态不同的记录）。
 
-Issues and pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for project layout, build / test instructions, and PR guidelines.
+**遇到这种情况**：重新去辅助功能（和屏幕录制,如果要用预览的话）里把开关勾上，退出重开就好了，别的都不用动。如果是故意要改名字（比如想跟自己电脑上已经装的另一个 BetterCmdTab 区分开、避免权限互相干扰），**只改外部的 bundle id / 显示名，别动包内可执行文件名**，这样能避免每次重新构建都要重新走一遍授权。
 
-## License
+## 6. 启用
 
-GPL v3. See [LICENSE](LICENSE).
+权限给完、App 重新打开之后，直接按 `⌘Tab` 就应该能看到新版切换器弹出来了，代替了 macOS 原生的那个。想验证有没有真的接管成功：
 
-BetterCmdTab is licensed under the GNU General Public License v3.0. You are free to use, study, modify, and redistribute it — including for commercial purposes — but any distributed derivative work must also be released under GPL v3 with full source code. This keeps the project and any fork of it open, forever.
+```bash
+pgrep -fl "BetterCmdTab"
+```
 
-## Credits
+能看到进程在跑，同时按 ⌘Tab 弹出来的不是系统原生样式，就是启用成功了。
 
-Built by [@rokartur](https://github.com/rokartur). Inspired by [AltTab](https://alt-tab.app/), [Witch](https://manytricks.com/witch/), and [Contexts](https://contexts.co/).
+之后不用做任何额外操作——正常用就行，改设置在菜单栏图标的 Settings 里。
+
+## 遇到问题怎么办
+
+- **⌘Tab 完全没反应，还是原生切换器** → 先查辅助功能权限有没有开，开了的话退出重开一次 App。
+- **切换器弹出来了，但全是大图标看不到窗口内容** → 去开屏幕录制权限，退出重开。
+- **之前明明好用，重新构建一次就又失效了** → 大概率是上面说的签名/权限绑定问题，重新授权一次就行，不是代码坏了。
