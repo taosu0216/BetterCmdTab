@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var antiNapActivity: NSObjectProtocol?
 
     static func main() {
+        UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
@@ -36,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        UserDefaults.standard.set(AccessibilityCheck.isTrusted, forKey: "Debug.accessibilityTrustedAtLaunch")
+        #endif
         // Re-enable any native symbolic hotkey a previous run left disabled
         // (crash / SIGKILL / power loss) and arm the crash-restore guard for this
         // session. Done here — before the Accessibility-gated controller boot —
@@ -97,7 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Refuse to start the switcher (and updater) while running from a
         // translocated mount — Gatekeeper Path Randomization will keep
         // bouncing the user between the Downloads copy and /Applications.
-        guard AppTranslocation.guardLaunchLocation() else { return }
+        let launchLocationOK = AppTranslocation.guardLaunchLocation()
+        #if DEBUG
+        UserDefaults.standard.set(launchLocationOK, forKey: "Debug.launchLocationOK")
+        #endif
+        guard launchLocationOK else { return }
 
         let waiter = AccessibilityWaiter()
         waiter.onTrusted = { [weak self] in
@@ -124,6 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func bootController() {
         guard controller == nil else { return }
+        #if DEBUG
+        UserDefaults.standard.set(true, forKey: "Debug.controllerBooted")
+        #endif
         let c = SwitcherController()
         c.start()
         controller = c

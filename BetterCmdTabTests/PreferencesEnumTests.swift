@@ -39,6 +39,44 @@ struct PreferencesEnumTests {
     }
 
     @MainActor
+    @Test("fresh appearance defaults match compact preview Cmd-Tab")
+    func freshAppearanceDefaults() {
+        #expect(Preferences.defaultSwitcherLayoutMode == .windowPreview)
+        #expect(Preferences.defaultPanelSize == .small)
+    }
+
+    @MainActor
+    @Test("legacy appearance default migrates to compact preview once")
+    func legacyAppearanceDefaultMigration() throws {
+        let defaults = try #require(UserDefaults(suiteName: "legacyAppearanceDefaultMigrationTests"))
+        defer { defaults.removePersistentDomain(forName: "legacyAppearanceDefaultMigrationTests") }
+
+        defaults.set(SwitcherLayoutMode.gridView.rawValue, forKey: Preferences.Keys.switcherLayoutMode)
+        defaults.set(PanelSize.standard.rawValue, forKey: Preferences.Keys.panelSize)
+        Preferences.migrateLegacyAppearanceDefault(defaults)
+        #expect(defaults.string(forKey: Preferences.Keys.switcherLayoutMode) == SwitcherLayoutMode.windowPreview.rawValue)
+        #expect(defaults.string(forKey: Preferences.Keys.panelSize) == PanelSize.small.rawValue)
+
+        defaults.set(SwitcherLayoutMode.gridView.rawValue, forKey: Preferences.Keys.switcherLayoutMode)
+        defaults.set(PanelSize.standard.rawValue, forKey: Preferences.Keys.panelSize)
+        Preferences.migrateLegacyAppearanceDefault(defaults)
+        #expect(defaults.string(forKey: Preferences.Keys.switcherLayoutMode) == SwitcherLayoutMode.gridView.rawValue)
+        #expect(defaults.string(forKey: Preferences.Keys.panelSize) == PanelSize.standard.rawValue)
+    }
+
+    @MainActor
+    @Test("fresh hover action defaults show only close and quit")
+    func freshHoverActionDefaults() {
+        #expect(Preferences.defaultHoverActionsEnabled)
+        #expect(Preferences.defaultHoverShowClose)
+        #expect(!Preferences.defaultHoverShowMinimize)
+        #expect(!Preferences.defaultHoverShowMaximize)
+        #expect(!Preferences.defaultHoverShowHide)
+        #expect(Preferences.defaultHoverShowQuit)
+        #expect(!Preferences.defaultHoverShowForceQuit)
+    }
+
+    @MainActor
     @Test("clampDelay keeps values inside the allowed range")
     func clampDelay() {
         #expect(Preferences.clampDelay(10) == Preferences.revealDelayRange.lowerBound)

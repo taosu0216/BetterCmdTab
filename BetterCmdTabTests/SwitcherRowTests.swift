@@ -163,6 +163,15 @@ struct SwitcherRowTests {
         #expect(row.app != nil)
     }
 
+    @Test("windowless running rows can still show app-level hover actions")
+    func windowlessHoverActions() {
+        let windowless = SwitcherRow(app: hostApp, window: nil, windowTitle: "", isMinimized: false)
+        #expect(RowAction.available(for: windowless) == [.hide, .quit, .forceQuit])
+
+        let windowed = SwitcherRow(app: hostApp, window: axElement(), windowTitle: "Window", isMinimized: false)
+        #expect(RowAction.available(for: windowed) == Set(RowAction.allCases))
+    }
+
     // MARK: - native window-tab rows
 
     @Test("from carries the window's native tab siblings for the peek")

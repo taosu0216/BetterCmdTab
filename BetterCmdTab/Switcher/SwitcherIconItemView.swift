@@ -152,7 +152,7 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
         let show = isHovered
             && Preferences.shared.hoverActionsEnabled
             && actionsAvailable
-            && actionBar.hasAnyEnabledButton
+            && actionBar.hasAnyVisibleButton
         if !show { actionBar.setHotAction(nil) }
         if actionBar.isHidden == !show { return }
         actionBar.isHidden = !show
@@ -279,10 +279,10 @@ final class SwitcherIconItemView: NSView, SwitcherItemViewProtocol {
             badgePill.isHidden = true
         }
 
-        // Hover action buttons apply to a real window of a running app.
-        actionsAvailable = !isDialog && row.app != nil && row.window != nil
+        let availableActions = RowAction.available(for: row)
+        actionsAvailable = !availableActions.isEmpty
         actionBar.setScale(metrics.scale)
-        actionBar.applyEnabledButtons()
+        actionBar.applyEnabledButtons(availableActions: availableActions)
         updateHoverBar()
 
         // Run `applySelection` exactly once: the `isSelected` setter already does

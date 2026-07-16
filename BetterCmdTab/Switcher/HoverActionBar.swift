@@ -8,7 +8,7 @@ import AppKit
 ///
 /// Clicks and per-dot hover are NOT handled by the dots themselves: the switcher
 /// content lives inside an `NSGlassEffectView` whose hosted subtree doesn't
-/// deliver mouse events to deep subviews, so `SwitcherView` does manual hit
+    /// deliver mouse events to deep subviews, so `SwitcherView` does manual hit
 /// testing (like its tile hit testing) and calls `action(atWindowPoint:)` /
 /// `setHotAction(_:)` here.
 @MainActor
@@ -26,6 +26,7 @@ final class HoverActionBar: NSView {
 
     private var dotsByAction: [RowAction: TrafficLightDot] = [:]
     private var orderedDots: [TrafficLightDot] = []
+    private var visibleActionCount = 0
 
     /// The dot currently highlighted (mouse hovering it), if any.
     private(set) var hotAction: RowAction?
@@ -53,7 +54,7 @@ final class HoverActionBar: NSView {
     /// building the dots means 6 `TrafficLightDot`s, each a constraint set + an
     /// SF-Symbol render, on every newly-allocated row. With every dot empty the
     /// bar's `contentSize` is `.zero` and it is never shown (the host item view
-    /// gates on `hasAnyEnabledButton`), so we only pay this once the user
+    /// gates on `hasAnyVisibleButton`), so we only pay this once the user
     /// actually enables an action — see `buildDotsIfNeeded`.
     private var dotsBuilt = false
 
@@ -80,7 +81,7 @@ final class HoverActionBar: NSView {
     }
 
     /// Position the visible dots left-to-right. Called from `layout()` and from
-    /// `applyEnabledButtons()` so frames are correct even when the bar's size
+    /// `applyEnabledButtons(availableActions:)` so frames are correct even when the bar's size
     /// doesn't change between reveals.
     private func layoutDots() {
         let d = dotSize
@@ -141,27 +142,42 @@ final class HoverActionBar: NSView {
     }
 
     /// Show/hide each dot per the user's per-action preferences.
-    func applyEnabledButtons() {
+    func applyEnabledButtons(availableActions: Set<RowAction>) {
         // Don't materialize the dots for the off-by-default case: an unbuilt bar
         // has zero `contentSize` and is never shown. Only build once at least one
         // action is enabled.
-        guard hasAnyEnabledButton else { return }
+        visibleActionCount = Self.specs.reduce(0) { count, spec in
+            count + (isEnabled(spec.action, availableActions: availableActions) ? 1 : 0)
+        }
+        guard visibleActionCount > 0 else {
+            for dot in orderedDots { dot.isHidden = true }
+            setHotAction(nil)
+            return
+        }
         buildDotsIfNeeded()
-        let prefs = Preferences.shared
-        dotsByAction[.close]?.isHidden = !prefs.hoverShowClose
-        dotsByAction[.minimize]?.isHidden = !prefs.hoverShowMinimize
-        dotsByAction[.maximize]?.isHidden = !prefs.hoverShowMaximize
-        dotsByAction[.hide]?.isHidden = !prefs.hoverShowHide
-        dotsByAction[.quit]?.isHidden = !prefs.hoverShowQuit
-        dotsByAction[.forceQuit]?.isHidden = !prefs.hoverShowForceQuit
+        for spec in Self.specs {
+            dotsByAction[spec.action]?.isHidden = !isEnabled(spec.action, availableActions: availableActions)
+        }
+        if let hotAction, !isEnabled(hotAction, availableActions: availableActions) {
+            setHotAction(nil)
+        }
         layoutDots()
     }
 
     /// True when at least one action button is enabled.
-    var hasAnyEnabledButton: Bool {
+    var hasAnyVisibleButton: Bool { visibleActionCount > 0 }
+
+    private func isEnabled(_ action: RowAction, availableActions: Set<RowAction>) -> Bool {
+        guard availableActions.contains(action) else { return false }
         let prefs = Preferences.shared
-        return prefs.hoverShowClose || prefs.hoverShowMinimize || prefs.hoverShowMaximize
-            || prefs.hoverShowHide || prefs.hoverShowQuit || prefs.hoverShowForceQuit
+        switch action {
+        case .close: return prefs.hoverShowClose
+        case .minimize: return prefs.hoverShowMinimize
+        case .maximize: return prefs.hoverShowMaximize
+        case .hide: return prefs.hoverShowHide
+        case .quit: return prefs.hoverShowQuit
+        case .forceQuit: return prefs.hoverShowForceQuit
+        }
     }
 
     /// The action whose dot contains `windowPoint` (in window coordinates), or

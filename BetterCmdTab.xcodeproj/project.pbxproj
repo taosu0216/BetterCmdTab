@@ -166,10 +166,10 @@
 				};
 			};
 			buildConfigurationList = 7559A7522FC06FD5004D97B7 /* Build configuration list for PBXProject "BetterCmdTab" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				"zh-Hans",
 				Base,
 				pl,
 				de,

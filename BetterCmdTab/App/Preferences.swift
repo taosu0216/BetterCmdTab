@@ -628,6 +628,16 @@ final class Preferences: ObservableObject {
     static let gridMaxColumnsRange: ClosedRange<Int> = 0...12
     /// Upper bound on recently-closed entries surfaced in search. `0` disables.
     static let recentlyClosedLimitRange: ClosedRange<Int> = 0...50
+    static let defaultSwitcherLayoutMode: SwitcherLayoutMode = .windowPreview
+    static let defaultPanelSize: PanelSize = .small
+    static let defaultHoverActionsEnabled = true
+    static let defaultHoverShowClose = true
+    static let defaultHoverShowMinimize = false
+    static let defaultHoverShowMaximize = false
+    static let defaultHoverShowHide = false
+    static let defaultHoverShowQuit = true
+    static let defaultHoverShowForceQuit = false
+    static let legacyAppearanceDefaultMigratedKey = "BetterCmdTab.legacyAppearanceDefaultMigrated"
 
     /// Number of direct-activation hotkey slots. Each slot binds a recorded
     /// shortcut (stored by BetterShortcuts) to a target app bundle ID.
@@ -1456,7 +1466,7 @@ final class Preferences: ObservableObject {
     // `.windowMgmt`); the package owns their recording + persistence.
 
     /// Master switch for the hover action buttons shown on each switcher row.
-    /// Default off. Per-button visibility lives in `hoverShow*`.
+    /// Default on with only close-window and quit-app buttons visible.
     @Published var hoverActionsEnabled: Bool {
         didSet {
             guard oldValue != hoverActionsEnabled else { return }
@@ -1590,12 +1600,28 @@ final class Preferences: ObservableObject {
         normalizeScopes((raw ?? []).map { SwitchScope(rawValue: $0) ?? .allAppsAllSpaces })
     }
 
+    static func migrateLegacyAppearanceDefault(_ defaults: UserDefaults) {
+        guard defaults.object(forKey: legacyAppearanceDefaultMigratedKey) == nil else { return }
+        defer { defaults.set(true, forKey: legacyAppearanceDefaultMigratedKey) }
+
+        guard defaults.string(forKey: Keys.switcherLayoutMode) == SwitcherLayoutMode.gridView.rawValue else { return }
+
+        // ponytail: old persisted defaults are indistinguishable from an explicit
+        // grid choice; migrate once, then leave any later user changes alone.
+        defaults.set(defaultSwitcherLayoutMode.rawValue, forKey: Keys.switcherLayoutMode)
+
+        let sizeRaw = defaults.string(forKey: Keys.panelSize)
+        if sizeRaw == nil || sizeRaw == PanelSize.standard.rawValue {
+            defaults.set(defaultPanelSize.rawValue, forKey: Keys.panelSize)
+        }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
+        Self.migrateLegacyAppearanceDefault(defaults)
 
         let layoutRaw = defaults.string(forKey: Keys.switcherLayoutMode)
-        self.switcherLayoutMode = layoutRaw.flatMap(SwitcherLayoutMode.init(rawValue:)) ?? .gridView
+        self.switcherLayoutMode = layoutRaw.flatMap(SwitcherLayoutMode.init(rawValue:)) ?? Self.defaultSwitcherLayoutMode
         self.switcherDisplayMode = defaults.string(forKey: Keys.switcherDisplayMode)
             .flatMap(SwitcherDisplayMode.init(rawValue:)) ?? .mouseCursor
 
@@ -1609,7 +1635,7 @@ final class Preferences: ObservableObject {
         self.letterChainTimeoutMs = Self.clampLetterChainTimeout(letterTimeout)
 
         let sizeRaw = defaults.string(forKey: Keys.panelSize)
-        self.panelSize = sizeRaw.flatMap(PanelSize.init(rawValue:)) ?? .standard
+        self.panelSize = sizeRaw.flatMap(PanelSize.init(rawValue:)) ?? Self.defaultPanelSize
 
         self.gridMaxColumns = defaults.object(forKey: Keys.gridMaxColumns) as? Int ?? 0
 
@@ -1724,13 +1750,13 @@ final class Preferences: ObservableObject {
         self.shortcutOverrides = Self.decodeShortcutOverrides(defaults.array(forKey: Keys.shortcutOverrides) as? [[String: String]])
         self.mouseHoverSelectionEnabled = defaults.object(forKey: Keys.mouseHoverSelectionEnabled) as? Bool ?? true
         self.mouseClickSelectionEnabled = defaults.object(forKey: Keys.mouseClickSelectionEnabled) as? Bool ?? true
-        self.hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
-        self.hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? true
-        self.hoverShowMinimize = defaults.object(forKey: Keys.hoverShowMinimize) as? Bool ?? true
-        self.hoverShowMaximize = defaults.object(forKey: Keys.hoverShowMaximize) as? Bool ?? true
-        self.hoverShowHide = defaults.object(forKey: Keys.hoverShowHide) as? Bool ?? true
-        self.hoverShowQuit = defaults.object(forKey: Keys.hoverShowQuit) as? Bool ?? true
-        self.hoverShowForceQuit = defaults.object(forKey: Keys.hoverShowForceQuit) as? Bool ?? false
+        self.hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? Self.defaultHoverActionsEnabled
+        self.hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? Self.defaultHoverShowClose
+        self.hoverShowMinimize = defaults.object(forKey: Keys.hoverShowMinimize) as? Bool ?? Self.defaultHoverShowMinimize
+        self.hoverShowMaximize = defaults.object(forKey: Keys.hoverShowMaximize) as? Bool ?? Self.defaultHoverShowMaximize
+        self.hoverShowHide = defaults.object(forKey: Keys.hoverShowHide) as? Bool ?? Self.defaultHoverShowHide
+        self.hoverShowQuit = defaults.object(forKey: Keys.hoverShowQuit) as? Bool ?? Self.defaultHoverShowQuit
+        self.hoverShowForceQuit = defaults.object(forKey: Keys.hoverShowForceQuit) as? Bool ?? Self.defaultHoverShowForceQuit
         self.hideFromScreenSharing = defaults.object(forKey: Keys.hideFromScreenSharing) as? Bool ?? false
     }
 
@@ -1744,13 +1770,13 @@ final class Preferences: ObservableObject {
     func reloadFromDefaults() {
         let defaults = UserDefaults.standard
 
-        switcherLayoutMode = defaults.string(forKey: Keys.switcherLayoutMode).flatMap(SwitcherLayoutMode.init(rawValue:)) ?? .gridView
+        switcherLayoutMode = defaults.string(forKey: Keys.switcherLayoutMode).flatMap(SwitcherLayoutMode.init(rawValue:)) ?? Self.defaultSwitcherLayoutMode
         switcherDisplayMode = defaults.string(forKey: Keys.switcherDisplayMode)
             .flatMap(SwitcherDisplayMode.init(rawValue:)) ?? .mouseCursor
         sortOrder = defaults.string(forKey: Keys.sortOrder).flatMap(SwitcherSortOrder.init(rawValue:)) ?? .mru
         revealDelayMs = Self.clampDelay(defaults.object(forKey: Keys.revealDelayMs) as? Int ?? Self.defaultRevealDelayMs)
         letterChainTimeoutMs = Self.clampLetterChainTimeout(defaults.object(forKey: Keys.letterChainTimeoutMs) as? Int ?? Self.defaultLetterChainTimeoutMs)
-        panelSize = defaults.string(forKey: Keys.panelSize).flatMap(PanelSize.init(rawValue:)) ?? .standard
+        panelSize = defaults.string(forKey: Keys.panelSize).flatMap(PanelSize.init(rawValue:)) ?? Self.defaultPanelSize
         gridMaxColumns = defaults.object(forKey: Keys.gridMaxColumns) as? Int ?? 0
 
         if let stored = defaults.array(forKey: Keys.appExceptions) as? [[String: String]] {
@@ -1818,13 +1844,13 @@ final class Preferences: ObservableObject {
         nextScopedShortcutID = max(defaults.object(forKey: Keys.nextScopedShortcutID) as? Int ?? 0, (scopedShortcuts.map(\.id).max() ?? -1) + 1)
         shortcutOverrides = Self.decodeShortcutOverrides(defaults.array(forKey: Keys.shortcutOverrides) as? [[String: String]])
 
-        hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? false
-        hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? true
-        hoverShowMinimize = defaults.object(forKey: Keys.hoverShowMinimize) as? Bool ?? true
-        hoverShowMaximize = defaults.object(forKey: Keys.hoverShowMaximize) as? Bool ?? true
-        hoverShowHide = defaults.object(forKey: Keys.hoverShowHide) as? Bool ?? true
-        hoverShowQuit = defaults.object(forKey: Keys.hoverShowQuit) as? Bool ?? true
-        hoverShowForceQuit = defaults.object(forKey: Keys.hoverShowForceQuit) as? Bool ?? false
+        hoverActionsEnabled = defaults.object(forKey: Keys.hoverActionsEnabled) as? Bool ?? Self.defaultHoverActionsEnabled
+        hoverShowClose = defaults.object(forKey: Keys.hoverShowClose) as? Bool ?? Self.defaultHoverShowClose
+        hoverShowMinimize = defaults.object(forKey: Keys.hoverShowMinimize) as? Bool ?? Self.defaultHoverShowMinimize
+        hoverShowMaximize = defaults.object(forKey: Keys.hoverShowMaximize) as? Bool ?? Self.defaultHoverShowMaximize
+        hoverShowHide = defaults.object(forKey: Keys.hoverShowHide) as? Bool ?? Self.defaultHoverShowHide
+        hoverShowQuit = defaults.object(forKey: Keys.hoverShowQuit) as? Bool ?? Self.defaultHoverShowQuit
+        hoverShowForceQuit = defaults.object(forKey: Keys.hoverShowForceQuit) as? Bool ?? Self.defaultHoverShowForceQuit
         hideFromScreenSharing = defaults.object(forKey: Keys.hideFromScreenSharing) as? Bool ?? false
     }
 }

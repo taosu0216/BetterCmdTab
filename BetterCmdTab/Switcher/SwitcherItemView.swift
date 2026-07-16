@@ -137,7 +137,7 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
         let show = isHovered
             && Preferences.shared.hoverActionsEnabled
             && actionsAvailable
-            && actionBar.hasAnyEnabledButton
+            && actionBar.hasAnyVisibleButton
         if !show { actionBar.setHotAction(nil) }
         if actionBar.isHidden == !show { return }
         actionBar.isHidden = !show
@@ -238,10 +238,10 @@ final class SwitcherItemView: NSView, SwitcherItemViewProtocol {
         // it exactly once: the `isSelected` setter already does so via `didSet`
         // when the value flips, so only call it explicitly when the value is
         // unchanged but other inputs (accent, metrics, label) still need it.
-        // Hover action buttons apply to a real window of a running app.
-        actionsAvailable = !isDialog && row.app != nil && row.window != nil
+        let availableActions = RowAction.available(for: row)
+        actionsAvailable = !availableActions.isEmpty
         actionBar.setScale(metrics.scale)
-        actionBar.applyEnabledButtons()
+        actionBar.applyEnabledButtons(availableActions: availableActions)
         updateHoverBar()
 
         if isSelected == selected {

@@ -3,13 +3,22 @@ import os
 
 /// A window/app action invoked from a row's hover buttons. Raw values double as
 /// `NSButton.tag`s in `HoverActionBar`.
-enum RowAction: Int {
+enum RowAction: Int, CaseIterable {
     case close
     case minimize
     case maximize
     case hide
     case quit
     case forceQuit
+
+    static func available(for row: SwitcherRow) -> Set<RowAction> {
+        guard !row.isSystemDialog, row.app != nil else { return [] }
+        var actions: Set<RowAction> = [.hide, .quit, .forceQuit]
+        if row.window != nil {
+            actions.formUnion([.close, .minimize, .maximize])
+        }
+        return actions
+    }
 }
 
 @MainActor
