@@ -7,8 +7,6 @@
 
 这个 fork **不跟上游同步**，以后每次都是本地分支 force push 上来的，不用管上游有没有新提交，也不用处理冲突。想要上游最新功能就直接用 [rokartur/BetterCmdTab](https://github.com/rokartur/BetterCmdTab)。
 
-下面就是同事在自己电脑上从零跑起来的全部步骤。
-
 ## 0. 前置要求
 
 - macOS 13.0（Ventura）或更新，跟原作者电脑同型号的话直接照抄这套流程就行
